@@ -1,4 +1,19 @@
 import streamlit as st
+
+st.set_page_config(page_title="Hinkelfit Studio", page_icon="🏋️", layout="wide")
+
+st.title("🏋️ Hinkelfit Studio - Minimaltest")
+st.success("✅ Die App läuft und lädt in unter 2 Sekunden!")import streamlit as st
+
+st.set_page_config(page_title="Hinkelfit Studio", page_icon="🏋️", layout="wide")
+
+st.title("🏋️ Hinkelfit Studio - Minimaltest")
+st.success("✅ Die App läuft und lädt in unter 2 Sekunden!")import streamlit as st
+
+st.set_page_config(page_title="Hinkelfit Studio", page_icon="🏋️", layout="wide")
+
+st.title("🏋️ Hinkelfit Studio - Minimaltest")
+st.success("✅ Die App läuft und lädt in unter 2 Sekunden!")import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
 # Seitenkonfiguration
