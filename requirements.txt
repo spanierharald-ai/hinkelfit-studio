@@ -1,0 +1,7 @@
+streamlit
+pandas
+matplotlib
+fpdf
+altair
+streamlit-gsheets
+reportlab
