@@ -1,7 +1,7 @@
 import datetime
 import pandas as pd
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Tagesansicht", page_icon="🏋️", layout="wide")
@@ -9,20 +9,25 @@ st.set_page_config(page_title="Hinkelfit Tagesansicht", page_icon="🏋️", lay
 st.title("🏋️ Trainer-Tagesansicht")
 st.write("Dein Cockpit für den heutigen Tag: Wer trainiert, wann geht's los und worauf musst du achten?")
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-# --- DATENBANKEN AUS DER CLOUD LADEN & UPGRADEN ---
+supabase = init_supabase()
+
+# --- DATENBANKEN AUS DER CLOUD LADEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception as e:
-    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.error("⚠️ Die Verbindung zu Supabase wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     st.stop()
 
 if df_members.empty:
-    st.warning("Keine Mitgliederdatenbank in Google Sheets gefunden. Bitte zuerst Mitglieder anlegen.")
+    st.warning("Keine Mitgliederdatenbank in der Cloud gefunden. Bitte zuerst Mitglieder anlegen.")
     st.stop()
 
 # --- SAUBERE LÖSUNG: Hilfsspalte "Name" für die Suche/Anzeige anlegen ---
@@ -31,21 +36,11 @@ if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
 else:
     df_members["Name"] = "Unbekannt"
 
-# Automatisches Datenbank-Upgrade: Fügt die Gesundheits-Notizen hinzu, falls sie fehlen
-needs_update = False
-if "Gesundheits_Notizen" not in df_members.columns:
-    df_members["Gesundheits_Notizen"] = ""
-    needs_update = True
-    
-if needs_update:
-    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-    st.cache_data.clear()
-
 # Termine laden
 try:
-    df_termine = conn.read(spreadsheet=SHEET_URL, worksheet="Termine", ttl=0)
-    df_termine = df_termine.dropna(how="all")
-    if "Teilnehmer" in df_termine.columns:
+    res_termine = supabase.table("Termine").select("*").execute()
+    df_termine = pd.DataFrame(res_termine.data)
+    if not df_termine.empty and "Teilnehmer" in df_termine.columns:
         df_termine["Teilnehmer"] = df_termine["Teilnehmer"].fillna("").astype(str)
 except Exception:
     df_termine = pd.DataFrame()
@@ -129,11 +124,11 @@ with st.expander("⚙️ Gesundheits-Warnungen & Notizen für das Dashboard pfle
         neue_notiz = st.text_input(f"Kurze Warnung/Notiz für {auswahl_name}:", value=str(aktuelle_notiz).replace('nan', ''), placeholder="z.B. LWS Vorfall 2024, Keine Überkopfbewegungen")
         
         if st.button("💾 Notiz in Cloud speichern"):
-            df_members.loc[df_members["Name"] == auswahl_name, "Gesundheits_Notizen"] = neue_notiz
+            # ID des gewählten Mitglieds ermitteln
+            member_id = df_members.loc[df_members["Name"] == auswahl_name, "Mitglieder_ID"].values[0]
             
-            # Wichtig: Die Hilfsspalte "Name" vor dem Speichern wieder entfernen
-            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-            st.cache_data.clear()
+            # Punktuelles Update direkt in der Supabase-Datenbank
+            supabase.table("Mitglieder").update({"Gesundheits_Notizen": neue_notiz}).eq("Mitglieder_ID", member_id).execute()
             
             st.success("Notiz erfolgreich gespeichert! Sie wird ab sofort im Tagesplan angezeigt.")
             st.rerun()
