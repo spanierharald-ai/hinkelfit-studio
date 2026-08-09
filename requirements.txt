@@ -3,3 +3,4 @@ pandas
 reportlab
 st-gsheets-connection
 weasyprint
+fpdf
