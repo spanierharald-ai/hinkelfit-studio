@@ -189,30 +189,30 @@ elif st.session_state.step == 2:
                         all_notes.append(f"OPs/Meds: {surgeries_meds}")
                     warnhinweis = ", ".join(all_notes)
 
-                   # Google Sheets Update
-conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1985436937#gid=1985436937"
-df = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
+                    # Google Sheets Update
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1985436937#gid=1985436937"
+                    df = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
 
-# Direkt saubere ID generieren basierend auf der aktuellen Anzahl der Mitglieder
-neue_id = f"HF-{(len(df) + 1):03d}"
+                    # Direkt saubere ID generieren basierend auf der aktuellen Anzahl der Mitglieder
+                    neue_id = f"HF-{(len(df) + 1):03d}"
 
-neues_mitglied = pd.DataFrame([{
-    "Mitglieder_ID": neue_id,              # <-- Direkt sauber befüllt
-    "Status": "Aktiv",                     # <-- Direkt sauber befüllt
-    "Kündigungs_Eingang": "",              # <-- Direkt sauber befüllt
-    "Vertrags_Ende": "",                   # <-- Direkt sauber befüllt
-    "Datum": datetime.now().strftime("%d.%m.%Y"),
-    "Vorname": st.session_state.vorname, 
-    "Nachname": st.session_state.nachname,
-    "Geburtsdatum": st.session_state.geburtsdatum, 
-    "E-Mail": st.session_state.email,
-    "Telefon": st.session_state.telefon, 
-    "Adresse": st.session_state.adresse,
-    "Tarif": st.session_state.tarif, 
-    "Ziele": ", ".join(st.session_state.ziele), 
-    "Gesundheits_Notizen": warnhinweis
-}])
+                    neues_mitglied = pd.DataFrame([{
+                        "Mitglieder_ID": neue_id,              # <-- Direkt sauber befüllt
+                        "Status": "Aktiv",                     # <-- Direkt sauber befüllt
+                        "Kündigungs_Eingang": "",              # <-- Direkt sauber befüllt
+                        "Vertrags_Ende": "",                   # <-- Direkt sauber befüllt
+                        "Datum": datetime.now().strftime("%d.%m.%Y"),
+                        "Vorname": st.session_state.vorname, 
+                        "Nachname": st.session_state.nachname,
+                        "Geburtsdatum": st.session_state.geburtsdatum, 
+                        "E-Mail": st.session_state.email,
+                        "Telefon": st.session_state.telefon, 
+                        "Adresse": st.session_state.adresse,
+                        "Tarif": st.session_state.tarif, 
+                        "Ziele": ", ".join(st.session_state.ziele), 
+                        "Gesundheits_Notizen": warnhinweis
+                    }])
                     conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=pd.concat([df, neues_mitglied], ignore_index=True))
 
                     # PDF generieren
