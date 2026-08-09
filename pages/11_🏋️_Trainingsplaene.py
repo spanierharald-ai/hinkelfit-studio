@@ -6,7 +6,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Trainingspläne & Vorlagen", page_icon="🏋️", layout="wide")
@@ -14,14 +14,19 @@ st.set_page_config(page_title="Hinkelfit Trainingspläne & Vorlagen", page_icon=
 st.title("🏋️ Trainingspläne, Vorlagen & Leistungsverlauf")
 st.write("Verwalte eigene Templates für Zirkel, EMOMs und Kraftblöcke, erfasse Einheiten und tracke den Fortschritt.")
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # --- MITGLIEDER AUS DER CLOUD LADEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception:
     df_members = pd.DataFrame()
 
@@ -54,14 +59,14 @@ os.makedirs(member_folder, exist_ok=True)
 
 st.markdown("---")
 
-# --- HISTORIE AUS GOOGLE SHEETS LADEN ---
+# --- HISTORIE AUS SUPABASE LADEN ---
 try:
-    df_hist_all = conn.read(spreadsheet=SHEET_URL, worksheet="Historie", ttl=0)
-    df_hist_all = df_hist_all.dropna(how="all")
+    res_hist = supabase.table("Historie").select("*").execute()
+    df_hist_all = pd.DataFrame(res_hist.data)
 except Exception:
     df_hist_all = pd.DataFrame()
 
-# Filtern nach ausgewähltem Mitglied (entweder über ID oder Name)
+# Filtern nach ausgewähltem Mitglied
 if not df_hist_all.empty and "Name" in df_hist_all.columns:
     df_hist_check = df_hist_all[df_hist_all["Name"] == sel_name].copy()
 else:
@@ -95,11 +100,11 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.subheader("Trainingseinheit für Mitglied zusammenstellen")
     
-    # Vorlagen aus Google Sheets laden, falls vorhanden
+    # Vorlagen aus Supabase laden, falls vorhanden
     template_names = ["Keine (Manuell starten)"]
     try:
-        df_templates_list = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
-        df_templates_list = df_templates_list.dropna(how="all")
+        res_t = supabase.table("Vorlagen").select("*").execute()
+        df_templates_list = pd.DataFrame(res_t.data)
         if not df_templates_list.empty and "Template_Name" in df_templates_list.columns:
             template_names += df_templates_list["Template_Name"].unique().tolist()
     except Exception:
@@ -115,8 +120,8 @@ with tab1:
     
     if selected_template != "Keine (Manuell starten)":
         try:
-            df_t_load = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
-            df_filtered_t = df_t_load[df_t_load["Template_Name"] == selected_template]
+            res_t_filt = supabase.table("Vorlagen").select("*").eq("Template_Name", selected_template).execute()
+            df_filtered_t = pd.DataFrame(res_t_filt.data)
             if not df_filtered_t.empty:
                 initial_block_name = selected_template
                 initial_editor_data = df_filtered_t[["Block", "Modus", "Uebung", "Sätze/Runden", "Wiederholungen/Distanz", "Gewicht", "Pause_Belastung"]].to_dict(orient="records")
@@ -163,17 +168,14 @@ with tab1:
                         "Notizen": notes_input
                     })
             
-            df_new_entries = pd.DataFrame(new_rows)
-            
-            if not df_hist_all.empty:
-                df_combined = pd.concat([df_hist_all, df_new_entries], ignore_index=True)
-            else:
-                df_combined = df_new_entries
-                
-            conn.update(spreadsheet=SHEET_URL, worksheet="Historie", data=df_combined)
-            st.cache_data.clear()
-            st.success("Trainingsdaten erfolgreich in der Cloud-Historie gespeichert!")
-            st.rerun()
+            try:
+                for r in new_rows:
+                    supabase.table("Historie").insert(r).execute()
+                st.cache_data.clear()
+                st.success("Trainingsdaten erfolgreich in der Cloud-Historie gespeichert!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Speichern: {e}")
 
 
 # ================= TAB 2: VORLAGEN VERWALTEN =================
@@ -209,30 +211,23 @@ with tab2:
                         "Gewicht": str(r["Gewicht"]),
                         "Pause_Belastung": str(r["Pause_Belastung"])
                     })
-            df_new_t = pd.DataFrame(t_rows)
             
             try:
-                df_all_t = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
-                df_all_t = df_all_t.dropna(how="all")
-            except Exception:
-                df_all_t = pd.DataFrame()
-                
-            if not df_all_t.empty and "Template_Name" in df_all_t.columns:
-                df_all_t = df_all_t[df_all_t["Template_Name"] != new_template_name.strip()]
-                df_all_t = pd.concat([df_all_t, df_new_t], ignore_index=True)
-            else:
-                df_all_t = df_new_t
-                
-            conn.update(spreadsheet=SHEET_URL, worksheet="Vorlagen", data=df_all_t)
-            st.cache_data.clear()
-            st.success(f"Vorlage '{new_template_name}' erfolgreich in der Cloud gespeichert!")
-            st.rerun()
+                # Zuerst alte Einträge dieses Template-Namens löschen, um Duplikate zu vermeiden
+                supabase.table("Vorlagen").delete().eq("Template_Name", new_template_name.strip()).execute()
+                for r in t_rows:
+                    supabase.table("Vorlagen").insert(r).execute()
+                st.cache_data.clear()
+                st.success(f"Vorlage '{new_template_name}' erfolgreich in der Cloud gespeichert!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Speichern der Vorlage: {e}")
 
     st.markdown("---")
     st.subheader("Vorhandene Vorlagen löschen")
     try:
-        df_existing_t = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
-        df_existing_t = df_existing_t.dropna(how="all")
+        res_ex_t = supabase.table("Vorlagen").select("*").execute()
+        df_existing_t = pd.DataFrame(res_ex_t.data)
     except Exception:
         df_existing_t = pd.DataFrame()
 
@@ -240,11 +235,13 @@ with tab2:
         existing_t_names = df_existing_t["Template_Name"].unique().tolist()
         del_template_choice = st.selectbox("Vorlage zum Löschen wählen:", existing_t_names)
         if st.button("🗑️ Ausgewählte Vorlage löschen"):
-            df_existing_t = df_existing_t[df_existing_t["Template_Name"] != del_template_choice]
-            conn.update(spreadsheet=SHEET_URL, worksheet="Vorlagen", data=df_existing_t)
-            st.cache_data.clear()
-            st.success(f"Vorlage '{del_template_choice}' gelöscht.")
-            st.rerun()
+            try:
+                supabase.table("Vorlagen").delete().eq("Template_Name", del_template_choice).execute()
+                st.cache_data.clear()
+                st.success(f"Vorlage '{del_template_choice}' gelöscht.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Löschen: {e}")
 
 
 # ================= TAB 3: DIAGRAMM & VERLAUF =================
