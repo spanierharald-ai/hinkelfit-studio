@@ -7,16 +7,21 @@ import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Zentrale", page_icon="⚙️", layout="wide")
 
 st.title("Hinkelfit - Studio Zentrale")
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # --- UHRZEIT-OPTIONEN FÜR DAS DROPDOWN ---
 zeit_optionen = [f"{h:02d}:{m:02d}" for h in range(6, 23) for m in (0, 15, 30, 45)]
@@ -56,7 +61,6 @@ def send_hinkelfit_email(to_email, to_name, subject, body_content_html):
         """
         msg_related.attach(MIMEText(full_html, "html", "utf-8"))
 
-        # Cloud-taugliche Suche nach dem Logo in verschiedenen möglichen Ordnern
         possible_logo_paths = [
             "Logo heller Hintergrund.jpg",
             "pdfs/Logo heller Hintergrund.jpg",
@@ -106,9 +110,9 @@ def notify_participants(teilnehmer_liste, df_members_check, subject, message_bod
                     send_hinkelfit_email(email, name, subject, message_body)
 
 def get_max_sessions(tarif):
-    if pd.isna(tarif): return 0
-    if "1x" in tarif: return 1
-    if "2x" in tarif: return 2
+    if pd.isna(tarif) or not tarif: return 0
+    if "1x" in str(tarif): return 1
+    if "2x" in str(tarif): return 2
     return 0
 
 def check_limits(teilnehmer_liste, termin_datum_str, df_termine_check, df_members_check, exclude_termin_id=None):
@@ -121,8 +125,9 @@ def check_limits(teilnehmer_liste, termin_datum_str, df_termine_check, df_member
     df_week["Datum_dt"] = pd.to_datetime(df_week["Datum"]).dt.date
     df_week = df_week[(df_week["Datum_dt"] >= start_w) & (df_week["Datum_dt"] <= end_w)]
     
-    if exclude_termin_id is not None and exclude_termin_id in df_week.index:
-        df_week = df_week.drop(index=exclude_termin_id)
+    # Supabase-Spezifisch: Wir nutzen jetzt Termin_ID
+    if exclude_termin_id is not None and "Termin_ID" in df_week.columns:
+        df_week = df_week[df_week["Termin_ID"] != exclude_termin_id]
         
     overbooked = []
     for person in teilnehmer_liste:
@@ -149,7 +154,7 @@ def get_upcoming_slots(tarif, df_termine_promo, start_of_week, end_of_week):
     min_date = max(today, start_of_week)
     df_week = df_t[(df_t["Datum_dt"] >= min_date) & (df_t["Datum_dt"] <= end_of_week)]
     
-    if "Kurse" in tarif:
+    if "Kurse" in str(tarif):
         df_week = df_week[df_week["Art"].isin(["Kurs", "Probetraining"])]
     elif tarif == "Probetraining":
         df_week = df_week[df_week["Art"] == "Probetraining"]
@@ -170,7 +175,6 @@ def get_upcoming_slots(tarif, df_termine_promo, start_of_week, end_of_week):
 
 # --- VERTRAGS-BERECHNUNG LOGIK ---
 def calculate_contract_end(beitrittsdatum_str, kuendigung_eingang_date):
-    """Berechnet das Vertragsende basierend auf monatlicher Laufzeit und 2 Wochen Kündigungsfrist."""
     try:
         beitritt_dt = datetime.datetime.strptime(beitrittsdatum_str, "%d.%m.%Y").date()
     except:
@@ -180,8 +184,7 @@ def calculate_contract_end(beitrittsdatum_str, kuendigung_eingang_date):
     y = kuendigung_eingang_date.year
     m = kuendigung_eingang_date.month
     
-    # Finde die nächsten monatlichen Stichtage ab dem Eingangsdatum
-    for _ in range(24): # max 2 Jahre in die Zukunft schauen
+    for _ in range(24): 
         try:
             period_end = datetime.date(y, m, day_of_month)
         except ValueError:
@@ -214,59 +217,43 @@ def calculate_contract_end(beitrittsdatum_str, kuendigung_eingang_date):
                 
     return kuendigung_eingang_date + datetime.timedelta(days=30)
 
-
-# --- DATENBANKEN AUS GOOGLE SHEETS LADEN & LEBENSZYKLUS PRÜFEN ---
+# --- DATENBANKEN AUS SUPABASE LADEN & LEBENSZYKLUS PRÜFEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception:
     df_members = pd.DataFrame()
 
 if not df_members.empty:
     if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
-        df_members["Name"] = df_members["Vorname"] + " " + df_members["Nachname"]
+        df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
     else:
         df_members["Name"] = "Unbekannt"
 
-    needs_update = False
-    if "Status" not in df_members.columns:
-        df_members["Status"] = "Aktiv"
-        needs_update = True
-    if "Mitglieder_ID" not in df_members.columns:
-        df_members.insert(0, "Mitglieder_ID", [f"HF-{i:03d}" for i in range(1, len(df_members) + 1)])
-        needs_update = True
-    if "Kündigungs_Eingang" not in df_members.columns:
-        df_members["Kündigungs_Eingang"] = ""
-        needs_update = True
-    if "Vertrags_Ende" not in df_members.columns:
-        df_members["Vertrags_Ende"] = ""
-        needs_update = True
-        
+    # Lebenszyklus-Update direkt in Supabase
     today_date = datetime.date.today()
     for idx, row in df_members.iterrows():
-        if row["Status"] == "Gekündigt" and pd.notna(row["Vertrags_Ende"]) and str(row["Vertrags_Ende"]).strip() != "":
+        if row.get("Status") == "Gekündigt" and pd.notna(row.get("Vertrags_Ende")) and str(row.get("Vertrags_Ende")).strip() != "":
             try:
                 end_dt = datetime.datetime.strptime(str(row["Vertrags_Ende"]), "%Y-%m-%d").date()
                 if today_date > end_dt:
                     df_members.at[idx, "Status"] = "Inaktiv"
-                    needs_update = True
+                    # Direkt in die Datenbank pushen
+                    supabase.table("Mitglieder").update({"Status": "Inaktiv"}).eq("Mitglieder_ID", row["Mitglieder_ID"]).execute()
             except:
                 pass
-                
-    if needs_update:
-        conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-        st.cache_data.clear()
 
 if df_members.empty:
-    st.warning("Keine Mitglieder in der Cloud gefunden. Bitte zuerst über die Anmeldung Mitglieder anlegen.")
+    st.warning("Keine Mitglieder in der Datenbank gefunden. Bitte zuerst über die Anmeldung Mitglieder anlegen.")
     st.stop()
 
 df_training_eligible = df_members[df_members["Status"].isin(["Aktiv", "Gekündigt"])]
 df_active_members = df_members[df_members["Status"] == "Aktiv"]
 
+# --- TERMINE AUS SUPABASE LADEN ---
 try:
-    df_termine_global = conn.read(spreadsheet=SHEET_URL, worksheet="Termine", ttl=0)
-    df_termine_global = df_termine_global.dropna(how="all")
+    res_termine = supabase.table("Termine").select("*").execute()
+    df_termine_global = pd.DataFrame(res_termine.data)
     if "Teilnehmer" in df_termine_global.columns:
         df_termine_global["Teilnehmer"] = df_termine_global["Teilnehmer"].fillna("").astype(str)
 except Exception:
@@ -275,7 +262,6 @@ except Exception:
 
 # --- TABS DEFINIEREN ---
 tab1, tab2, tab3, tab4 = st.tabs(["📅 Termin-Planer", "🎂 Geburtstags-Manager", "👥 Mitglieder-Liste", "✉️ Auslastung & Promo"])
-
 
 # -------------------------------------------------------------------------
 # TAB 1: TERMIN-PLANER
@@ -286,7 +272,6 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             termin_datum = st.date_input("Datum")
-            # --- UHRZEIT ALS DROPDOWN ---
             termin_uhrzeit_str = st.selectbox("Uhrzeit", zeit_optionen, index=zeit_optionen.index("18:00") if "18:00" in zeit_optionen else 0)
             termin_uhrzeit = datetime.datetime.strptime(termin_uhrzeit_str, "%H:%M").time()
             
@@ -309,7 +294,6 @@ with tab1:
         else: 
             eligible_members = df_training_eligible[~df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
 
-        # --- MAXIMAL 4 PERSONEN LOGIK ---
         max_sel = 4 if termin_art == "Personaltraining (Kleingruppe)" else None
         
         teilnehmer = st.multiselect(
@@ -317,7 +301,7 @@ with tab1:
             eligible_members["Name"].tolist() if not eligible_members.empty else [],
             max_selections=max_sel
         )
-        submitted = st.form_submit_button("Neuen Termin in die Cloud speichern")
+        submitted = st.form_submit_button("Neuen Termin anlegen")
 
         if submitted:
             if termin_art == "Personaltraining (Kleingruppe)" and (len(teilnehmer) + (1 if i_name.strip() else 0)) > 4:
@@ -347,24 +331,29 @@ with tab1:
                 elif conflict:
                     st.error(f"⚠️ Buchungskonflikt: Überschneidung mit bestehendem Termin.")
                 else:
-                    new_termin = pd.DataFrame([{
-                        "Datum": str(termin_datum), "Uhrzeit": termin_uhrzeit.strftime("%H:%M"),
-                        "Art": termin_art, "Dauer": termin_dauer, "Teilnehmer": ", ".join(teilnehmer) if teilnehmer else ""
-                    }])
-                    df_to_save = pd.concat([df_termine_global, new_termin], ignore_index=True) if not df_termine_global.empty else new_termin
+                    # Supabase Insert
+                    termin_id = f"T-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    new_termin_dict = {
+                        "Termin_ID": termin_id,
+                        "Datum": str(termin_datum),
+                        "Uhrzeit": termin_uhrzeit.strftime("%H:%M"),
+                        "Art": termin_art,
+                        "Dauer": termin_dauer,
+                        "Teilnehmer": ", ".join(teilnehmer) if teilnehmer else ""
+                    }
+                    supabase.table("Termine").insert(new_termin_dict).execute()
                     
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_to_save)
-                    st.cache_data.clear()
-                    st.success("✅ Termin erfolgreich in Google Sheets gespeichert!")
+                    st.success("✅ Termin erfolgreich in der Cloud gespeichert!")
                     st.rerun()
 
     st.markdown("---")
     st.subheader("Geplante Termine (Übersicht)")
-    if not df_termine_global.empty:
+    if not df_termine_global.empty and "Termin_ID" in df_termine_global.columns:
         df_show = df_termine_global.copy()
         df_show["Datum_Sort"] = pd.to_datetime(df_show["Datum"])
         df_show = df_show.sort_values(by=["Datum_Sort", "Uhrzeit"])
         df_show = df_show.drop(columns=["Datum_Sort"])
+        df_show = df_show.set_index("Termin_ID")
         
         st.dataframe(df_show, use_container_width=True)
         st.markdown("---")
@@ -372,141 +361,133 @@ with tab1:
         
         edit_id = st.selectbox(
             "Wähle den Termin aus, den du bearbeiten möchtest:", 
-            df_show.index, 
+            df_show.index.tolist(), 
             format_func=lambda x: f"{df_show.loc[x, 'Datum']} - {df_show.loc[x, 'Uhrzeit']} Uhr ({df_show.loc[x, 'Art']})"
         )
         
-        selected_termin = df_show.loc[edit_id]
-        termin_art_edit = selected_termin["Art"]
-        termin_datum_edit = str(selected_termin["Datum"])
-        termin_uhrzeit_edit = str(selected_termin["Uhrzeit"])
-        current_teilnehmer_list = [t.strip() for t in str(selected_termin["Teilnehmer"]).split(",")] if str(selected_termin["Teilnehmer"]).strip() else []
+        if edit_id:
+            selected_termin = df_show.loc[edit_id]
+            termin_art_edit = selected_termin["Art"]
+            termin_datum_edit = str(selected_termin["Datum"])
+            termin_uhrzeit_edit = str(selected_termin["Uhrzeit"])
+            current_teilnehmer_list = [t.strip() for t in str(selected_termin["Teilnehmer"]).split(",")] if str(selected_termin["Teilnehmer"]).strip() else []
 
-        col_edit1, col_edit2, col_edit3 = st.columns([1.5, 1.2, 1])
-        with col_edit1:
-            st.write("**1. Teilnehmer anpassen**")
-            
-            if termin_art_edit == "Kurs": 
-                eligible_members_edit = df_training_eligible[df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
-            elif termin_art_edit == "Probetraining": 
-                eligible_members_edit = df_training_eligible
-            else: 
-                eligible_members_edit = df_training_eligible[~df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
-            
-            all_names = eligible_members_edit["Name"].tolist()
-            
-            for t in current_teilnehmer_list:
-                if t in df_members["Name"].tolist() and t not in all_names:
-                    all_names.append(t)
-                    
-            valid_members = [t for t in current_teilnehmer_list if t in all_names]
-            interessenten = [t for t in current_teilnehmer_list if "Interessent" in t]
-
-            max_sel_edit = 4 if termin_art_edit == "Personaltraining (Kleingruppe)" else None
-            # Sicherheitscheck, damit Streamlit nicht abstürzt falls fälschlicherweise schon 5 drin sind
-            default_valid = valid_members[:4] if max_sel_edit == 4 else valid_members
-
-            new_teilnehmer = st.multiselect("Mitglieder hinzufügen / entfernen:", options=all_names, default=default_valid, max_selections=max_sel_edit, key=f"multi_edit_{edit_id}")
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("💾 Aktualisieren"):
-                    final_teilnehmer = new_teilnehmer + interessenten
-                    if termin_art_edit == "Personaltraining (Kleingruppe)" and len(final_teilnehmer) > 4:
-                        st.error("⚠️ Ein Kleingruppen-Personaltraining ist auf maximal 4 Personen begrenzt!")
-                    else:
-                        overbooked = check_limits(final_teilnehmer, termin_datum_edit, df_termine_global, df_members, exclude_termin_id=edit_id)
-                        if overbooked:
-                            for p, l in overbooked: st.error(f"⚠️ {p} hat das Wochenlimit ({l}) erreicht.")
-                        else:
-                            df_show.at[edit_id, "Teilnehmer"] = ", ".join(final_teilnehmer)
-                            conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_show)
-                            st.cache_data.clear()
-                            st.success("Liste in der Cloud aktualisiert!")
-                            st.rerun()
-            with col_btn2:
-                if st.button("🧹 Alle entfernen"):
-                    df_show.at[edit_id, "Teilnehmer"] = ""
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_show)
-                    st.cache_data.clear()
-                    st.success("Liste geleert!")
-                    st.rerun()
-
-        with col_edit2:
-            st.write("**2. Termin verschieben**")
-            cur_date_obj = datetime.datetime.strptime(termin_datum_edit, "%Y-%m-%d").date()
-            
-            new_date = st.date_input("Neues Datum", value=cur_date_obj, key=f"d_{edit_id}")
-            
-            # --- UHRZEIT ALS DROPDOWN ---
-            # Falls die alte Uhrzeit aus irgendeinem Grund unrund war, wird sie hinzugefügt
-            if termin_uhrzeit_edit not in zeit_optionen:
-                zeit_optionen.append(termin_uhrzeit_edit)
-                zeit_optionen.sort()
+            col_edit1, col_edit2, col_edit3 = st.columns([1.5, 1.2, 1])
+            with col_edit1:
+                st.write("**1. Teilnehmer anpassen**")
                 
-            new_time_str = st.selectbox("Neue Uhrzeit", zeit_optionen, index=zeit_optionen.index(termin_uhrzeit_edit), key=f"t_{edit_id}")
-            new_time = datetime.datetime.strptime(new_time_str, "%H:%M").time()
-            
-            if st.button("🔄 Verschieben & Mail senden"):
-                if str(new_date) == termin_datum_edit and new_time_str == termin_uhrzeit_edit: 
-                    st.warning("Keine Änderung.")
-                else:
-                    conflict = False
-                    termin_dt = datetime.datetime.combine(new_date, new_time)
-                    termin_end_dt = termin_dt + datetime.timedelta(minutes=75)
-                    for idx, row in df_show.iterrows():
-                        if idx == edit_id: continue 
-                        r_date = datetime.datetime.strptime(str(row["Datum"]), "%Y-%m-%d").date()
-                        if r_date == new_date:
-                            e_start = datetime.datetime.combine(r_date, datetime.datetime.strptime(str(row["Uhrzeit"]), "%H:%M").time())
-                            if termin_dt < e_start + datetime.timedelta(minutes=75) and termin_end_dt > e_start:
-                                conflict = True
-                                break
-                    if conflict: st.error("⚠️ Buchungskonflikt am neuen Termin!")
-                    else:
-                        df_show.at[edit_id, "Datum"] = str(new_date)
-                        df_show.at[edit_id, "Uhrzeit"] = new_time.strftime("%H:%M")
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_show)
-                        st.cache_data.clear()
-                        if current_teilnehmer_list:
-                            body = f"<p>dein Training ({termin_art_edit}) wurde von mir verschoben.</p><p><strong>Neuer Termin:</strong> {new_date.strftime('%d.%m.%Y')} um {new_time.strftime('%H:%M')} Uhr.</p><p>Bitte trage dir die neue Zeit ein. Falls du da nicht kannst, antworte mir einfach kurz auf diese E-Mail.</p>"
-                            notify_participants(current_teilnehmer_list, df_members, "Dein Hinkelfit Termin wurde verschoben", body)
-                        st.success("Verschoben & Teilnehmer informiert!")
+                if termin_art_edit == "Kurs": 
+                    eligible_members_edit = df_training_eligible[df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
+                elif termin_art_edit == "Probetraining": 
+                    eligible_members_edit = df_training_eligible
+                else: 
+                    eligible_members_edit = df_training_eligible[~df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
+                
+                all_names = eligible_members_edit["Name"].tolist()
+                
+                for t in current_teilnehmer_list:
+                    if t in df_members["Name"].tolist() and t not in all_names:
+                        all_names.append(t)
+                        
+                valid_members = [t for t in current_teilnehmer_list if t in all_names]
+                interessenten = [t for t in current_teilnehmer_list if "Interessent" in t]
+
+                max_sel_edit = 4 if termin_art_edit == "Personaltraining (Kleingruppe)" else None
+                default_valid = valid_members[:4] if max_sel_edit == 4 else valid_members
+
+                new_teilnehmer = st.multiselect("Mitglieder hinzufügen / entfernen:", options=all_names, default=default_valid, max_selections=max_sel_edit, key=f"multi_edit_{edit_id}")
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 Aktualisieren"):
+                        final_teilnehmer = new_teilnehmer + interessenten
+                        if termin_art_edit == "Personaltraining (Kleingruppe)" and len(final_teilnehmer) > 4:
+                            st.error("⚠️ Ein Kleingruppen-Personaltraining ist auf maximal 4 Personen begrenzt!")
+                        else:
+                            overbooked = check_limits(final_teilnehmer, termin_datum_edit, df_termine_global, df_members, exclude_termin_id=edit_id)
+                            if overbooked:
+                                for p, l in overbooked: st.error(f"⚠️ {p} hat das Wochenlimit ({l}) erreicht.")
+                            else:
+                                new_t_str = ", ".join(final_teilnehmer)
+                                # Gezieltes Update in Supabase
+                                supabase.table("Termine").update({"Teilnehmer": new_t_str}).eq("Termin_ID", edit_id).execute()
+                                st.success("Liste in der Cloud aktualisiert!")
+                                st.rerun()
+                with col_btn2:
+                    if st.button("🧹 Alle entfernen"):
+                        supabase.table("Termine").update({"Teilnehmer": ""}).eq("Termin_ID", edit_id).execute()
+                        st.success("Liste geleert!")
                         st.rerun()
 
-        with col_edit3:
-            st.write("**3. Termin stornieren**")
-            st.info("Sagt das Training ab und schlägt Alternativ-Termine vor.")
-            if st.button("🗑️ Stornieren & Mail senden"):
-                if current_teilnehmer_list:
-                    cur_date_obj = datetime.datetime.strptime(termin_datum_edit, "%Y-%m-%d").date()
-                    start_w = cur_date_obj - datetime.timedelta(days=cur_date_obj.weekday())
-                    temp_df = df_show.drop(index=edit_id)
+            with col_edit2:
+                st.write("**2. Termin verschieben**")
+                cur_date_obj = datetime.datetime.strptime(termin_datum_edit, "%Y-%m-%d").date()
+                
+                new_date = st.date_input("Neues Datum", value=cur_date_obj, key=f"d_{edit_id}")
+                
+                if termin_uhrzeit_edit not in zeit_optionen:
+                    zeit_optionen.append(termin_uhrzeit_edit)
+                    zeit_optionen.sort()
                     
-                    for t in current_teilnehmer_list:
-                        email, name, tarif = None, "", ""
-                        if "Interessent" in t:
-                            try:
-                                email = t.split("Interessent: ")[1].split(",")[0].strip()
-                                name = t.split(" (")[0].strip()
-                                tarif = "Probetraining"
-                            except: pass
+                new_time_str = st.selectbox("Neue Uhrzeit", zeit_optionen, index=zeit_optionen.index(termin_uhrzeit_edit), key=f"t_{edit_id}")
+                new_time = datetime.datetime.strptime(new_time_str, "%H:%M").time()
+                
+                if st.button("🔄 Verschieben & Mail senden"):
+                    if str(new_date) == termin_datum_edit and new_time_str == termin_uhrzeit_edit: 
+                        st.warning("Keine Änderung.")
+                    else:
+                        conflict = False
+                        termin_dt = datetime.datetime.combine(new_date, new_time)
+                        termin_end_dt = termin_dt + datetime.timedelta(minutes=75)
+                        for idx, row in df_show.iterrows():
+                            if idx == edit_id: continue 
+                            r_date = datetime.datetime.strptime(str(row["Datum"]), "%Y-%m-%d").date()
+                            if r_date == new_date:
+                                e_start = datetime.datetime.combine(r_date, datetime.datetime.strptime(str(row["Uhrzeit"]), "%H:%M").time())
+                                if termin_dt < e_start + datetime.timedelta(minutes=75) and termin_end_dt > e_start:
+                                    conflict = True
+                                    break
+                        if conflict: st.error("⚠️ Buchungskonflikt am neuen Termin!")
                         else:
-                            mrow = df_members[df_members["Name"] == t.strip()]
-                            if not mrow.empty:
-                                email, name, tarif = mrow.iloc[0].get("E-Mail", ""), t.strip().split()[0], mrow.iloc[0].get("Tarif", "")
+                            supabase.table("Termine").update({"Datum": str(new_date), "Uhrzeit": new_time.strftime("%H:%M")}).eq("Termin_ID", edit_id).execute()
+                            if current_teilnehmer_list:
+                                body = f"<p>dein Training ({termin_art_edit}) wurde von mir verschoben.</p><p><strong>Neuer Termin:</strong> {new_date.strftime('%d.%m.%Y')} um {new_time.strftime('%H:%M')} Uhr.</p><p>Bitte trage dir die neue Zeit ein. Falls du da nicht kannst, antworte mir einfach kurz auf diese E-Mail.</p>"
+                                notify_participants(current_teilnehmer_list, df_members, "Dein Hinkelfit Termin wurde verschoben", body)
+                            st.success("Verschoben & Teilnehmer informiert!")
+                            st.rerun()
+
+            with col_edit3:
+                st.write("**3. Termin stornieren**")
+                st.info("Sagt das Training ab und schlägt Alternativ-Termine vor.")
+                if st.button("🗑️ Stornieren & Mail senden"):
+                    if current_teilnehmer_list:
+                        cur_date_obj = datetime.datetime.strptime(termin_datum_edit, "%Y-%m-%d").date()
+                        start_w = cur_date_obj - datetime.timedelta(days=cur_date_obj.weekday())
+                        temp_df = df_show.drop(index=edit_id).reset_index()
                         
-                        if email and "@" in email:
-                            slots_html = get_upcoming_slots(tarif, temp_df, start_w, start_w + datetime.timedelta(days=6))
-                            if "Leider" in slots_html: slots_section = "<p>Aktuell habe ich in dieser Woche leider keine weiteren freien Termine. Bitte antworte mir kurz, damit wir eine individuelle Lösung finden.</p>"
-                            else: slots_section = f"<p>Als Ersatz schlage ich dir folgende noch freie Termine für diese Woche vor:</p><p>{slots_html}</p><p>Bitte antworte mir kurz, welchen Termin du wahrnehmen möchtest.</p>"
-                            body = f"<p>dein Training ({termin_art_edit}) am {cur_date_obj.strftime('%d.%m.%Y')} um {termin_uhrzeit_edit} Uhr muss ich leider absagen.</p><p>Dein Kontingent für diese Woche ist damit wieder freigegeben.</p>{slots_section}"
-                            send_hinkelfit_email(email, name, "Dein Hinkelfit Termin wurde abgesagt", body)
+                        for t in current_teilnehmer_list:
+                            email, name, tarif = None, "", ""
+                            if "Interessent" in t:
+                                try:
+                                    email = t.split("Interessent: ")[1].split(",")[0].strip()
+                                    name = t.split(" (")[0].strip()
+                                    tarif = "Probetraining"
+                                except: pass
+                            else:
+                                mrow = df_members[df_members["Name"] == t.strip()]
+                                if not mrow.empty:
+                                    email, name, tarif = mrow.iloc[0].get("E-Mail", ""), t.strip().split()[0], mrow.iloc[0].get("Tarif", "")
                             
-                df_show = df_show.drop(index=edit_id)
-                conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_show)
-                st.cache_data.clear()
-                st.success("Termin storniert, aus der Cloud entfernt & Teilnehmer informiert!")
-                st.rerun()
+                            if email and "@" in email:
+                                slots_html = get_upcoming_slots(tarif, temp_df, start_w, start_w + datetime.timedelta(days=6))
+                                if "Leider" in slots_html: slots_section = "<p>Aktuell habe ich in dieser Woche leider keine weiteren freien Termine. Bitte antworte mir kurz, damit wir eine individuelle Lösung finden.</p>"
+                                else: slots_section = f"<p>Als Ersatz schlage ich dir folgende noch freie Termine für diese Woche vor:</p><p>{slots_html}</p><p>Bitte antworte mir kurz, welchen Termin du wahrnehmen möchtest.</p>"
+                                body = f"<p>dein Training ({termin_art_edit}) am {cur_date_obj.strftime('%d.%m.%Y')} um {termin_uhrzeit_edit} Uhr muss ich leider absagen.</p><p>Dein Kontingent für diese Woche ist damit wieder freigegeben.</p>{slots_section}"
+                                send_hinkelfit_email(email, name, "Dein Hinkelfit Termin wurde abgesagt", body)
+                                
+                    # Löschen in Supabase
+                    supabase.table("Termine").delete().eq("Termin_ID", edit_id).execute()
+                    st.success("Termin storniert, aus der Cloud entfernt & Teilnehmer informiert!")
+                    st.rerun()
     else: st.info("Es sind aktuell keine Termine geplant.")
 
 # -------------------------------------------------------------------------
@@ -518,7 +499,6 @@ with tab2:
     upcoming_bdays, bdays_today = [], []
     
     for _, row in df_active_members.iterrows():
-        # Sicherstellen, dass wir die richtige Spalte erwischen
         dob_col = next((c for c in row.keys() if "geburts" in str(c).lower()), None)
         
         if not dob_col:
@@ -531,7 +511,6 @@ with tab2:
         d_str = str(raw_dob).strip()
         dob = None
         
-        # 1. Absolut robustes Extrahieren per Regex (sucht nach Tag, Monat und Jahr)
         match_full = re.search(r'(\d{1,2})[^\d](\d{1,2})[^\d](\d{2,4})', d_str)
         if match_full:
             d, m, y = int(match_full.group(1)), int(match_full.group(2)), int(match_full.group(3))
@@ -542,24 +521,21 @@ with tab2:
             except ValueError:
                 pass
         
-        # 2. Wenn kein Jahr gefunden wurde (z.B. nur "09.08." eingegeben)
         if dob is None:
             match_short = re.search(r'(\d{1,2})[^\d](\d{1,2})', d_str)
             if match_short:
                 d, m = int(match_short.group(1)), int(match_short.group(2))
                 try:
-                    dob = datetime.date(1900, m, d) # Dummy-Jahr, nur damit wir den Tag/Monat haben
+                    dob = datetime.date(1900, m, d) 
                 except ValueError:
                     pass
 
         if dob is not None:
-            # Nächsten Geburtstag berechnen & Schaltjahr-Abstürze verhindern
             try:
                 next_bday = datetime.date(today.year, dob.month, dob.day)
             except ValueError:
-                next_bday = datetime.date(today.year, 3, 1) # 29. Feb wird auf 1. März gelegt
+                next_bday = datetime.date(today.year, 3, 1) 
                 
-            # Wenn der Geburtstag dieses Jahr schon war, auf nächstes Jahr setzen
             if next_bday < today:
                 try:
                     next_bday = datetime.date(today.year + 1, dob.month, dob.day)
@@ -568,7 +544,6 @@ with tab2:
                     
             days_until = (next_bday - today).days
             
-            # Alter berechnen (nur wenn echtes Jahr angegeben wurde)
             if dob.year > 1900 and dob.year <= today.year:
                 wird_alt = f"{next_bday.year - dob.year} Jahre"
             else:
@@ -653,12 +628,13 @@ with tab3:
             if st.button("🚀 Kündigung in der Cloud erfassen & Bestätigungs-Mail senden"):
                 vertrags_ende_date = calculate_contract_end(str(beitrittsdatum), kuendigung_datum)
                 
-                df_members.at[member_idx, "Status"] = "Gekündigt"
-                df_members.at[member_idx, "Kündigungs_Eingang"] = str(kuendigung_datum)
-                df_members.at[member_idx, "Vertrags_Ende"] = str(vertrags_ende_date)
-                
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                st.cache_data.clear()
+                # Punktuelles Update in Supabase
+                update_data = {
+                    "Status": "Gekündigt",
+                    "Kündigungs_Eingang": str(kuendigung_datum),
+                    "Vertrags_Ende": str(vertrags_ende_date)
+                }
+                supabase.table("Mitglieder").update(update_data).eq("Mitglieder_ID", selected_id).execute()
                 
                 if pd.notna(member_email) and "@" in str(member_email):
                     vorname = df_members.at[member_idx, "Vorname"]
@@ -683,9 +659,7 @@ with tab3:
         else:
             new_manual_status = st.selectbox("Status auf einen Wert setzen:", ["Aktiv", "Gekündigt", "Inaktiv"], index=["Aktiv", "Gekündigt", "Inaktiv"].index(current_status) if current_status in ["Aktiv", "Gekündigt", "Inaktiv"] else 0)
             if st.button("💾 Manuellen Status speichern"):
-                df_members.at[member_idx, "Status"] = new_manual_status
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                st.cache_data.clear()
+                supabase.table("Mitglieder").update({"Status": new_manual_status}).eq("Mitglieder_ID", selected_id).execute()
                 st.success(f"Status von {selected_name} auf '{new_manual_status}' in der Cloud geändert.")
                 st.rerun()
 
