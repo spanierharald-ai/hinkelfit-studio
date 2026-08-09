@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Studio-Dashboard", page_icon="📊", layout="wide")
@@ -8,16 +8,21 @@ st.set_page_config(page_title="Hinkelfit Studio-Dashboard", page_icon="📊", la
 st.title("📊 Hinkelfit Studio-Dashboard & KPIs")
 st.write("Hier ist der aktuelle Überblick über dein Studio und die wichtigsten Kennzahlen.")
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # --- DATENBANK AUS DER CLOUD LADEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception as e:
-    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen.")
+    st.error("⚠️ Die Verbindung zur Supabase-Datenbank wurde kurzzeitig unterbrochen.")
     df_members = pd.DataFrame()
 
 if df_members.empty:
@@ -30,18 +35,11 @@ if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
 else:
     df_members["Name"] = "Unbekannt"
 
-# Sicherstellen, dass notwendige Spalten da sind
-needs_update = False
+# Fallback für die App, falls die Spalten in der Supabase noch nicht angelegt sind
 if "Status" not in df_members.columns:
     df_members["Status"] = "Aktiv"
-    needs_update = True
 if "Tarif" not in df_members.columns:
     df_members["Tarif"] = "Kurse 2x wöchentlich, 59€ pro Monat"
-    needs_update = True
-
-if needs_update:
-    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-    st.cache_data.clear()
 
 # --- KPI BERECHNUNGEN ---
 total_members = len(df_members)
