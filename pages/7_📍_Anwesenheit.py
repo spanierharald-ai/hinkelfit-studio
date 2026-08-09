@@ -1,23 +1,28 @@
 import datetime
 import pandas as pd
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Anwesenheit", page_icon="📍", layout="wide")
 
 st.title("📍 Anwesenheit & Termin-Check-in")
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # --- DATENBANKEN AUS DER CLOUD LADEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception as e:
-    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.error("⚠️ Die Verbindung zur Supabase-Datenbank wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     df_members = pd.DataFrame()
 
 if not df_members.empty:
@@ -28,18 +33,19 @@ if not df_members.empty:
         df_members["Name"] = "Unbekannt"
 
 try:
-    df_termine = conn.read(spreadsheet=SHEET_URL, worksheet="Termine", ttl=0)
-    df_termine = df_termine.dropna(how="all")
-    if "Teilnehmer" in df_termine.columns:
+    res_termine = supabase.table("Termine").select("*").execute()
+    df_termine = pd.DataFrame(res_termine.data)
+    if not df_termine.empty and "Teilnehmer" in df_termine.columns:
         df_termine["Teilnehmer"] = df_termine["Teilnehmer"].fillna("").astype(str)
 except Exception:
     df_termine = pd.DataFrame()
 
 try:
-    df_att = conn.read(spreadsheet=SHEET_URL, worksheet="Anwesenheit", ttl=0)
-    df_att = df_att.dropna(how="all")
+    res_att = supabase.table("Anwesenheit").select("*").execute()
+    df_att = pd.DataFrame(res_att.data)
+    if df_att.empty:
+        df_att = pd.DataFrame(columns=["Datum", "Mitglieder_ID", "Name"])
 except Exception:
-    # Falls das Blatt komplett leer ist, initialisieren
     df_att = pd.DataFrame(columns=["Datum", "Mitglieder_ID", "Name"])
 
 
@@ -106,28 +112,20 @@ with tab1:
                         submit_session = st.form_submit_button(f"💾 Anwesenheit für '{termin_titel}' in Cloud speichern")
                         
                         if submit_session:
-                            df_att_new = df_att.copy()
-                            if df_att_new.empty:
-                                df_att_new = pd.DataFrame(columns=["Datum", "Mitglieder_ID", "Name"])
-                                
                             for name, is_present in checked_participants.items():
                                 m_id = "-"
                                 if not df_members.empty:
-                                    match_row = df_members[df_members["Name"].astype(str).str.contains(name, case=False, na=False)]
+                                    # Exakten Namen suchen, enthält könnte falsch matchen (Harald vs Harald gg)
+                                    match_row = df_members[df_members["Name"] == name]
                                     if not match_row.empty:
                                         m_id = str(match_row.iloc[0]["Mitglieder_ID"])
                                 
-                                exists_mask = (df_att_new["Datum"] == date_str) & (df_att_new["Name"] == name)
+                                # Supabase: Einfach den alten Eintrag (falls vorhanden) löschen
+                                supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).execute()
                                 
+                                # Wenn anwesend, neu eintragen
                                 if is_present:
-                                    if df_att_new[exists_mask].empty:
-                                        new_row = pd.DataFrame([{"Datum": date_str, "Mitglieder_ID": m_id, "Name": name}])
-                                        df_att_new = pd.concat([df_att_new, new_row], ignore_index=True)
-                                else:
-                                    df_att_new = df_att_new[~exists_mask]
-                            
-                            conn.update(spreadsheet=SHEET_URL, worksheet="Anwesenheit", data=df_att_new)
-                            st.cache_data.clear()
+                                    supabase.table("Anwesenheit").insert({"Datum": date_str, "Mitglieder_ID": m_id, "Name": name}).execute()
                             
                             st.success(f"Anwesenheit für '{termin_titel}' erfolgreich in der Cloud aktualisiert!")
                             st.rerun()
