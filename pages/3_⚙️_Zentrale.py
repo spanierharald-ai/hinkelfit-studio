@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import streamlit as st
 import smtplib
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -517,46 +518,80 @@ with tab2:
     upcoming_bdays, bdays_today = [], []
     
     for _, row in df_active_members.iterrows():
-        raw_dob = row.get("Geburtsdatum", "")
-        if pd.notna(raw_dob) and str(raw_dob).strip() != "" and str(raw_dob).strip() != "nan":
-            try:
-                # Robustes Einlesen des Datums (egal welches Format Google Sheets ausspuckt)
-                dob = pd.to_datetime(raw_dob, dayfirst=True).date()
-                
-                # Schutz vor Schaltjahr-Abstürzen (29. Februar)
-                try:
-                    next_bday = datetime.date(today.year, dob.month, dob.day)
-                except ValueError:
-                    next_bday = datetime.date(today.year, 3, 1) # Wird in Nicht-Schaltjahren auf 1. März gelegt
-                    
-                # Wenn der Geburtstag dieses Jahr schon war, auf nächstes Jahr setzen
-                if next_bday < today:
-                    try:
-                        next_bday = datetime.date(today.year + 1, dob.month, dob.day)
-                    except ValueError:
-                        next_bday = datetime.date(today.year + 1, 3, 1)
-                        
-                days_until = (next_bday - today).days
-                info = {
-                    "Name": row.get("Name", "Unbekannt"), 
-                    "Email": row.get("E-Mail", ""), 
-                    "Wird ... Jahre alt": next_bday.year - dob.year, 
-                    "In ... Tagen": days_until
-                }
-                
-                if days_until == 0: 
-                    bdays_today.append(info)
-                elif 1 <= days_until <= 30: 
-                    upcoming_bdays.append(info)
-            except Exception:
-                pass 
+        # Sicherstellen, dass wir die richtige Spalte erwischen
+        dob_col = next((c for c in row.keys() if "geburts" in str(c).lower()), None)
+        
+        if not dob_col:
+            continue
             
+        raw_dob = row.get(dob_col, "")
+        if pd.isna(raw_dob) or str(raw_dob).strip() in ["", "nan", "None"]:
+            continue
+            
+        d_str = str(raw_dob).strip()
+        dob = None
+        
+        # 1. Absolut robustes Extrahieren per Regex (sucht nach Tag, Monat und Jahr)
+        match_full = re.search(r'(\d{1,2})[^\d](\d{1,2})[^\d](\d{2,4})', d_str)
+        if match_full:
+            d, m, y = int(match_full.group(1)), int(match_full.group(2)), int(match_full.group(3))
+            if y < 100: 
+                y += 1900 if y > 30 else 2000
+            try:
+                dob = datetime.date(y, m, d)
+            except ValueError:
+                pass
+        
+        # 2. Wenn kein Jahr gefunden wurde (z.B. nur "09.08." eingegeben)
+        if dob is None:
+            match_short = re.search(r'(\d{1,2})[^\d](\d{1,2})', d_str)
+            if match_short:
+                d, m = int(match_short.group(1)), int(match_short.group(2))
+                try:
+                    dob = datetime.date(1900, m, d) # Dummy-Jahr, nur damit wir den Tag/Monat haben
+                except ValueError:
+                    pass
+
+        if dob is not None:
+            # Nächsten Geburtstag berechnen & Schaltjahr-Abstürze verhindern
+            try:
+                next_bday = datetime.date(today.year, dob.month, dob.day)
+            except ValueError:
+                next_bday = datetime.date(today.year, 3, 1) # 29. Feb wird auf 1. März gelegt
+                
+            # Wenn der Geburtstag dieses Jahr schon war, auf nächstes Jahr setzen
+            if next_bday < today:
+                try:
+                    next_bday = datetime.date(today.year + 1, dob.month, dob.day)
+                except ValueError:
+                    next_bday = datetime.date(today.year + 1, 3, 1)
+                    
+            days_until = (next_bday - today).days
+            
+            # Alter berechnen (nur wenn echtes Jahr angegeben wurde)
+            if dob.year > 1900 and dob.year <= today.year:
+                wird_alt = f"{next_bday.year - dob.year} Jahre"
+            else:
+                wird_alt = "(Alter unbekannt)"
+                
+            info = {
+                "Name": row.get("Name", "Unbekannt"), 
+                "Email": row.get("E-Mail", ""), 
+                "Wird ... Jahre alt": wird_alt, 
+                "In ... Tagen": days_until
+            }
+            
+            if days_until == 0: 
+                bdays_today.append(info)
+            elif 1 <= days_until <= 30: 
+                upcoming_bdays.append(info)
+                
     if bdays_today:
         st.balloons()
         st.error("🎉 **HEUTE HABEN GEBURTSTAG!** 🎉")
         for bkid in bdays_today:
             col_b1, col_b2 = st.columns([2, 1])
-            with col_b1: st.markdown(f"**{bkid['Name']}** wird heute **{bkid['Wird ... Jahre alt']} Jahre** alt!")
+            with col_b1: st.markdown(f"**{bkid['Name']}** wird heute **{bkid['Wird ... Jahre alt']}**!")
             with col_b2:
                 if st.button(f"✉️ Geschenk-E-Mail senden", key=f"mail_{bkid['Name']}"):
                     name = bkid['Name'].split()[0] if bkid['Name'] else "liebes Mitglied"
