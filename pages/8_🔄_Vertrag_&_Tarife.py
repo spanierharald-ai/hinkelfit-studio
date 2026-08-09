@@ -283,6 +283,11 @@ if selected_member_str:
         
         st.markdown("---")
         st.write("🖋️ **Digitale Unterschrift des Mitglieds:**")
+        
+        # Initialisierung des Canvas-IDs im Session State für automatisches Leeren
+        if "canvas_id" not in st.session_state:
+            st.session_state.canvas_id = 0
+
         canvas_result = st_canvas(
             fill_color="#fff", 
             stroke_width=3, 
@@ -291,7 +296,7 @@ if selected_member_str:
             height=150, 
             width=600, 
             drawing_mode="freedraw", 
-            key="tariff_canvas"
+            key=f"tariff_canvas_{st.session_state.canvas_id}"
         )
         
         if st.button("💾 Tarifänderung in Cloud bestätigen, PDF generieren & senden", key="btn_submit_tariff"):
@@ -330,6 +335,9 @@ if selected_member_str:
                 email = row.get("E-Mail", "")
                 first_name = row.get("Vorname", "Mitglied")
                 
+                # Canvas-ID erhöhen, damit das Unterschriftenfeld beim Neuladen geleert wird
+                st.session_state.canvas_id += 1
+                
                 if pd.notna(email) and "@" in str(email):
                     subject = f"Bestätigung deiner Tarifänderung bei Hinkelfit"
                     body = f"""
@@ -339,20 +347,12 @@ if selected_member_str:
                     """
                     if send_hinkelfit_email_with_pdf(email, first_name, subject, body, pdf_path):
                         st.success(f"✅ Tarifänderung erfolgreich gespeichert, PDF erstellt und E-Mail erfolgreich an {row['Name']} gesendet!")
-                        
-                        # Unterschriftenfeld im Session State leeren, damit es beim nächsten Rerun leer ist
-                        if "tariff_canvas" in st.session_state:
-                            del st.session_state["tariff_canvas"]
-                            
                         st.rerun()
                     else:
                         st.warning("⚠️ Tarif wurde geändert und PDF im Ordner gespeichert, aber beim E-Mail-Versand gab es ein Problem.")
+                        st.rerun()
                 else:
                     st.success(f"✅ Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
-                    
-                    if "tariff_canvas" in st.session_state:
-                        del st.session_state["tariff_canvas"]
-                        
                     st.rerun()
                 
     # -------------------------------------------------------------------------
