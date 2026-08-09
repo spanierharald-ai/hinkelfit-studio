@@ -22,14 +22,19 @@ from reportlab.lib import colors
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Tarifwechsel & Pausierung", page_icon="🔄", layout="wide")
 
-BASE_DIR = r"C:\Users\carol\Desktop\HinkelFit\Planung Wittislingen\Anmeldung"
-MEMBERS_DIR = os.path.join(BASE_DIR, "mitglieder")
+# Cloud-tauglicher Fallback für den Mitglieder-Ordner
+MEMBERS_DIR = "mitglieder"
+if not os.path.exists(MEMBERS_DIR):
+    try:
+        os.makedirs(MEMBERS_DIR, exist_ok=True)
+    except:
+        pass
 
 # --- GOOGLE SHEETS VERBINDUNG ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- ZENTRALE E-MAIL FUNKTION MIT ANHANG ---
+# --- ZENTRALE E-MAIL FUNKTION MIT ANHANG & LOGO ---
 def send_hinkelfit_email_with_pdf(to_email, to_name, subject, body_content_html, pdf_path):
     try:
         email_secrets = st.secrets.get("email", {})
@@ -60,9 +65,21 @@ def send_hinkelfit_email_with_pdf(to_email, to_name, subject, body_content_html,
         """
         msg_related.attach(MIMEText(full_html, "html", "utf-8"))
 
-        # Logo einbinden
-        logo_path = os.path.join(BASE_DIR, "Logo heller Hintergrund.jpg")
-        if os.path.exists(logo_path):
+        # Cloud-taugliche Suche nach dem Logo in verschiedenen möglichen Ordnern
+        possible_logo_paths = [
+            "Logo heller Hintergrund.jpg",
+            "pdfs/Logo heller Hintergrund.jpg",
+            os.path.join(os.path.dirname(__file__), "..", "Logo heller Hintergrund.jpg"),
+            os.path.join(os.path.dirname(__file__), "..", "pdfs", "Logo heller Hintergrund.jpg")
+        ]
+        
+        logo_path = None
+        for p in possible_logo_paths:
+            if os.path.exists(p):
+                logo_path = p
+                break
+
+        if logo_path:
             with open(logo_path, "rb") as img_file:
                 logo_part = MIMEImage(img_file.read())
                 logo_part.add_header('Content-ID', '<logo>')
@@ -86,10 +103,10 @@ def send_hinkelfit_email_with_pdf(to_email, to_name, subject, body_content_html,
         print(f"E-Mail-Fehler: {e}")
         return False
 
-# --- PDF GENERIERUNG IM BESTEHENDEN MITGLIEDER-ORDNER MIT BILD-UNTERSCHRIFT ---
+# --- PDF GENERIERUNG IM MITGLIEDER-ORDNER MIT BILD-UNTERSCHRIFT ---
 def generate_tariff_pdf(member_data, old_tariff, new_tariff, effective_date, sig_image_path):
     if not os.path.exists(MEMBERS_DIR):
-        os.makedirs(MEMBERS_DIR)
+        os.makedirs(MEMBERS_DIR, exist_ok=True)
         
     customer_dir = None
     member_id_str = str(member_data['Mitglieder_ID'])
@@ -104,7 +121,7 @@ def generate_tariff_pdf(member_data, old_tariff, new_tariff, effective_date, sig
         customer_dir = os.path.join(MEMBERS_DIR, f"{member_id_str}_{safe_name}")
         
     if not os.path.exists(customer_dir):
-        os.makedirs(customer_dir)
+        os.makedirs(customer_dir, exist_ok=True)
         
     pdf_filename = f"Tarifänderung_{datetime.date.today().strftime('%Y%m%d')}.pdf"
     pdf_path = os.path.join(customer_dir, pdf_filename)
@@ -309,23 +326,23 @@ if selected_member_str:
                 conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 
-                # 3. E-Mail mit PDF versenden
+                # 3. E-Mail mit PDF versenden (Singular: "ich")
                 email = row.get("E-Mail", "")
                 first_name = row.get("Vorname", "Mitglied")
                 
                 if pd.notna(email) and "@" in str(email):
                     subject = f"Bestätigung deiner Tarifänderung bei Hinkelfit"
                     body = f"""
-                    <p>wir haben deinen Wunsch nach einem Tarifwechsel entgegengenommen und im System hinterlegt.</p>
+                    <p>ich habe deinen Wunsch nach einem Tarifwechsel entgegengenommen und im System hinterlegt.</p>
                     <p>Im Anhang findest du die offizielle Bestätigung deiner Tarifänderung auf <strong>{new_tariff}</strong> (gültig ab dem {effective_str}), versehen mit deiner digitalen Unterschrift.</p>
                     <p>Vielen Dank und sportliche Grüße!</p>
                     """
                     if send_hinkelfit_email_with_pdf(email, first_name, subject, body, pdf_path):
-                        st.success(f"Tarifänderung erfolgreich in der Cloud gespeichert, PDF im Ordner abgelegt und per E-Mail an {row['Name']} gesendet!")
+                        st.success(f"✅ Tarifänderung erfolgreich gespeichert, PDF erstellt und E-Mail erfolgreich an {row['Name']} gesendet!")
                     else:
-                        st.warning("Tarif wurde geändert und PDF im Ordner gespeichert, aber beim E-Mail-Versand gab es ein Problem.")
+                        st.warning("⚠️ Tarif wurde geändert und PDF im Ordner gespeichert, aber beim E-Mail-Versand gab es ein Problem.")
                 else:
-                    st.success(f"Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
+                    st.success(f"✅ Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
                 
                 st.rerun()
                 
@@ -364,7 +381,7 @@ if selected_member_str:
                     st.success(f"Mitgliedschaft für {row['Name']} wurde bis zum {pause_end.strftime('%d.%m.%Y')} pausiert!")
                     st.rerun()
         else:
-            st.success(f"⚠️ Diese Mitgliedschaft is aktuell **pausiert** (bis voraussichtlich {row.get('Pausiert_Bis', 'unbekannt')}).")
+            st.success(f"⚠️ Diese Mitgliedschaft ist aktuell **pausiert** (bis voraussichtlich {row.get('Pausiert_Bis', 'unbekannt')}).")
             
             if st.button("▶️ Mitgliedschaft jetzt reaktivieren (Status in Cloud auf 'Aktiv' setzen)"):
                 df_members.at[m_idx, "Status"] = "Aktiv"
