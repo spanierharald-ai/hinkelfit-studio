@@ -5,3 +5,4 @@ st-gsheets-connection
 weasyprint
 fpdf
 matplotlib
+streamlit-drawable-canvas
