@@ -177,6 +177,12 @@ if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden.")
     st.stop()
 
+# --- TYP-KONFLIKTE VERHINDERN (WICHTIG FÜR TEXTSPALTEN) ---
+text_columns = ['Mitglieder_ID', 'Vorname', 'Nachname', 'E-Mail', 'Adresse', 'Tarif', 'Status', 'Pausiert_Bis', 'Notizen', 'Datum']
+for col in text_columns:
+    if col in df_members.columns:
+        df_members[col] = df_members[col].astype(object)
+
 # --- SAUBERE LÖSUNG: Hilfsspalte "Name" anlegen ---
 if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
     df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
