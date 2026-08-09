@@ -172,59 +172,59 @@ elif st.session_state.step == 2:
                     conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=pd.concat([df, neues_mitglied], ignore_index=True))
 
                     # PDF generieren
-                   # Unterschrift in Base64 umwandeln für das HTML-PDF
-          img_base64 = ""
-          if st.session_state.get("signature") is not None:
-            sig_img = Image.fromarray(
-                st.session_state.signature.astype("uint8"), "RGBA"
-            )
-            buffered = io.BytesIO()
-            sig_img.save(buffered, format="PNG")
-            img_base64 = base64.b64encode(buffered.getvalue()).decode()
+                # Unterschrift in Base64 umwandeln für das HTML-PDF
+                img_base64 = ""
+                if st.session_state.get("signature") is not None:
+                    sig_img = Image.fromarray(
+                        st.session_state.signature.astype("uint8"), "RGBA"
+                    )
+                    buffered = io.BytesIO()
+                    sig_img.save(buffered, format="PNG")
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-          # Professionelles HTML für den Vertrag erstellen
-          html_contract = f"""
-                    <html>
-                    <head>
-                        <meta charset="utf-8">
-                        <style>
-                            body {{ font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.5; font-size: 13px; margin: 30px; }}
-                            h1 {{ color: #111; border-bottom: 2px solid #333; padding-bottom: 5px; font-size: 18px; }}
-                            h3 {{ color: #444; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }}
-                            .field {{ margin-bottom: 6px; }}
-                            .label {{ font-weight: bold; color: #222; }}
-                            .box {{ background-color: #f9f9f9; border: 1px solid #ddd; padding: 12px; margin-top: 10px; }}
-                        </style>
-                    </head>
-                    <body>
-                        <h1>Hinkelfit – Mitgliedschaftsvertrag</h1>
-                        <div class="field"><span class="label">Dienstleister:</span> Hinkelfit (Inh. Harald Spanier), Papiermühlweg 27, 89407 Wittislingen</div>
-                        <div class="field"><span class="label">Vertragsdatum:</span> {datetime.now().strftime('%d.%m.%Y')}</div>
-                        
-                        <h3>Mitgliedsdaten</h3>
-                        <div class="field"><span class="label">Name:</span> {st.session_state.vorname} {st.session_state.nachname}</div>
-                        <div class="field"><span class="label">Anschrift:</span> {st.session_state.adresse}</div>
-                        <div class="field"><span class="label">E-Mail:</span> {st.session_state.email}</div>
-                        <div class="field"><span class="label">Telefon:</span> {st.session_state.telefon if st.session_state.telefon else 'Keine Angabe'}</div>
-                        <div class="field"><span class="label">Geburtsdatum:</span> {st.session_state.geburtsdatum if st.session_state.geburtsdatum else 'Keine Angabe'}</div>
-                        
-                        <h3>Gewählter Tarif & Konditionen</h3>
-                        <div class="box">
-                            <strong>Tarif:</strong> {st.session_state.tarif}<br><br>
-                            • <strong>Zahlung & Rechnungsstellung:</strong> Die Vergütung ist nach Rechnungsstellung sofort per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.<br>
-                            • <strong>Terminabsage & Stornierung:</strong> Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.<br>
-                            • <strong>Kündigungsfrist:</strong> 2 Wochen zum Laufzeitende
-                        </div>
-                        
-                        <h3>Digitale Unterschrift</h3>
-                        <div class="field">Rechtsverbindlich digital unterschrieben von <strong>{st.session_state.vorname} {st.session_state.nachname}</strong> am {datetime.now().strftime('%d.%m.%Y')}</div>
-                        {'<img src="data:image/png;base64,' + img_base64 + '" style="margin-top: 10px; border: 1px solid #ccc; width: 250px;">' if img_base64 else ''}
-                    </body>
-                    </html>
-                    """
+                # Professionelles HTML für den Vertrag erstellen
+                html_contract = f"""
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <style>
+                        body {{ font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.5; font-size: 13px; margin: 30px; }}
+                        h1 {{ color: #111; border-bottom: 2px solid #333; padding-bottom: 5px; font-size: 18px; }}
+                        h3 {{ color: #444; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }}
+                        .field {{ margin-bottom: 6px; }}
+                        .label {{ font-weight: bold; color: #222; }}
+                        .box {{ background-color: #f9f9f9; border: 1px solid #ddd; padding: 12px; margin-top: 10px; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Hinkelfit – Mitgliedschaftsvertrag</h1>
+                    <div class="field"><span class="label">Dienstleister:</span> Hinkelfit (Inh. Harald Spanier), Papiermühlweg 27, 89407 Wittislingen</div>
+                    <div class="field"><span class="label">Vertragsdatum:</span> {datetime.now().strftime('%d.%m.%Y')}</div>
+                    
+                    <h3>Mitgliedsdaten</h3>
+                    <div class="field"><span class="label">Name:</span> {st.session_state.vorname} {st.session_state.nachname}</div>
+                    <div class="field"><span class="label">Anschrift:</span> {st.session_state.adresse}</div>
+                    <div class="field"><span class="label">E-Mail:</span> {st.session_state.email}</div>
+                    <div class="field"><span class="label">Telefon:</span> {st.session_state.telefon if st.session_state.telefon else 'Keine Angabe'}</div>
+                    <div class="field"><span class="label">Geburtsdatum:</span> {st.session_state.geburtsdatum if st.session_state.geburtsdatum else 'Keine Angabe'}</div>
+                    
+                    <h3>Gewählter Tarif & Konditionen</h3>
+                    <div class="box">
+                        <strong>Tarif:</strong> {st.session_state.tarif}<br><br>
+                        • <strong>Zahlung & Rechnungsstellung:</strong> Die Vergütung ist nach Rechnungsstellung sofort per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.<br>
+                        • <strong>Terminabsage & Stornierung:</strong> Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.<br>
+                        • <strong>Kündigungsfrist:</strong> 2 Wochen zum Laufzeitende
+                    </div>
+                    
+                    <h3>Digitale Unterschrift</h3>
+                    <div class="field">Rechtsverbindlich digital unterschrieben von <strong>{st.session_state.vorname} {st.session_state.nachname}</strong> am {datetime.now().strftime('%d.%m.%Y')}</div>
+                    {'<img src="data:image/png;base64,' + img_base64 + '" style="margin-top: 10px; border: 1px solid #ccc; width: 250px;">' if img_base64 else ''}
+                </body>
+                </html>
+                """
 
-          pdf_bytes = HTML(string=html_contract).write_pdf()
-          st.session_state.pdf_bytes = pdf_bytes
+                pdf_bytes = HTML(string=html_contract).write_pdf()
+                st.session_state.pdf_bytes = pdf_bytes
 
                     # E-Mail Versand mit Anhängen und Logo
                     sender = st.secrets["email"]["absender"]
