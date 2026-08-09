@@ -1,6 +1,7 @@
 import io
 import os
 import smtplib
+import time
 from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -27,13 +28,29 @@ st.write("Fülle das Formular gemeinsam mit dem neuen Mitglied aus und lass es u
 
 # --- FORMULAR ---
 with st.form("anmeldung_form"):
+    st.subheader("👤 Persönliche Daten")
     col1, col2 = st.columns(2)
     with col1:
         vorname = st.text_input("Vorname")
         nachname = st.text_input("Nachname")
+        geburtsdatum = st.text_input("Geburtsdatum")
     with col2:
         email = st.text_input("E-Mail-Adresse")
         telefon = st.text_input("Telefonnummer")
+        adresse = st.text_input("Adresse (Straße, PLZ, Ort)")
+
+    st.subheader("🏋️ Training & Vertrag")
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        tarif = st.selectbox("Tarifauswahl", ["Basic", "Premium", "All-Inclusive", "10er Karte"])
+        erfahrung = st.selectbox("Bisherige Trainingserfahrung", ["Keine", "Anfänger", "Fortgeschritten", "Profi"])
+    with col_t2:
+        ziele = st.text_area("Ziele des Trainings")
+
+    st.subheader("📄 Rechtliches & Zustimmung")
+    agb_akzeptiert = st.checkbox("Ich akzeptiere die Vertragsbedingungen und AGB.")
+    datenschutz_akzeptiert = st.checkbox("Ich stimme der Datenverarbeitung gemäß Datenschutzerklärung zu.")
+    haftungsausschluss = st.checkbox("Haftungsausschluss zur Kenntnis genommen.")
 
     st.subheader("🖋️ Unterschrift")
     st.write("Bitte hier im weißen Feld unterschreiben:")
@@ -57,6 +74,10 @@ if submit_button:
     if not vorname or not nachname or not email:
         st.error("⚠️ Bitte mindestens Vorname, Nachname und E-Mail ausfüllen!")
         st.stop()
+        
+    if not agb_akzeptiert or not datenschutz_akzeptiert or not haftungsausschluss:
+        st.error("⚠️ Die AGB, Datenschutzerklärung und der Haftungsausschluss müssen akzeptiert werden!")
+        st.stop()
 
     with st.spinner("Verarbeite Anmeldung... (Google Tabelle, E-Mail & Cloud werden synchronisiert)"):
         try:
@@ -69,8 +90,13 @@ if submit_button:
                 "Datum": datetime.now().strftime("%d.%m.%Y"),
                 "Vorname": vorname,
                 "Nachname": nachname,
+                "Geburtsdatum": geburtsdatum,
                 "E-Mail": email,
-                "Telefon": telefon
+                "Telefon": telefon,
+                "Adresse": adresse,
+                "Tarif": tarif,
+                "Erfahrung": erfahrung,
+                "Ziele": ziele
             }])
             df_aktualisiert = pd.concat([df, neues_mitglied], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_aktualisiert)
@@ -158,7 +184,17 @@ if submit_button:
                 file_metadata_sig = {'name': 'Unterschrift.png', 'parents': [neu_ordner_id]}
                 drive_service.files().create(body=file_metadata_sig, media_body=media, fields='id').execute()
 
-            st.success(f"🎉 {vorname} {nachname} wurde erfolgreich angelegt, die E-Mail verschickt und der Cloud-Ordner erstellt!")
-
+            # --- WEITERLEITUNG ZUR ANAMNESE VORBEREITEN ---
+            st.session_state['anamnese_vorname'] = vorname
+            st.session_state['anamnese_nachname'] = nachname
+            st.session_state['anamnese_email'] = email
+            
+            st.success(f"🎉 {vorname} {nachname} wurde erfolgreich angelegt! Weiterleitung zur Anamnese...")
+            
         except Exception as e:
             st.error(f"❌ Fehler bei der Verarbeitung: {e}")
+            st.stop()
+            
+    # Kurze Pause für die Erfolgsmeldung, dann Seitenwechsel
+    time.sleep(2)
+    st.switch_page("pages/3_🩺_Anamnese.py")
