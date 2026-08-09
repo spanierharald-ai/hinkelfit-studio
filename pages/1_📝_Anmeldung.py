@@ -35,15 +35,47 @@ if st.session_state.step == 1:
     st.title("📝 Neues Mitglied anmelden")
     st.write("Fülle das Formular gemeinsam mit dem neuen Mitglied aus und lass es unten auf dem Tablet unterschreiben.")
 
-    # Außerhalb der form, damit Checkboxen direkt klickbar reagieren
-    st.subheader("📄 Rechtliches & Zustimmung")
+    st.subheader("👤 1. Persönliche Daten")
+    col1, col2 = st.columns(2)
+    with col1:
+        vorname = st.text_input("Vorname *")
+        nachname = st.text_input("Nachname *")
+        geburtsdatum = st.text_input("Geburtsdatum")
+    with col2:
+        email = st.text_input("E-Mail-Adresse *")
+        telefon = st.text_input("Telefonnummer")
+        adresse = st.text_input("Adresse (Straße, PLZ, Ort)")
+
+    st.markdown("---")
+    st.subheader("🏋️ 2. Tarif & Ziele")
+    tarif = st.selectbox(
+        "Tarifauswahl", 
+        [
+            "Kurse 2x wöchentlich 59€", 
+            "Kleingruppen-Personal-Training 1x wöchentlich 99€", 
+            "Kleingruppen-Personal-Training 2x wöchentich 179€"
+        ]
+    )
+    experience = st.selectbox(
+        "Wie schätzt du deine Trainingserfahrung im Krafttraining ein?",
+        ["Anfänger (weniger als 6 Monate)", "Leicht fortgeschritten (6 Monate bis 2 Jahre)", "Fortgeschritten (über 2 Jahre)"]
+    )
+    main_goal = st.multiselect(
+        "Was sind deine Hauptziele bei Hinkelfit?",
+        ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"]
+    )
+
+    st.markdown("---")
+    st.subheader("📄 3. Rechtliches & Zustimmung")
     
     st.info("""**Allgemeine Vertragsbedingungen:**\n
 • **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n
 • **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n
 • **Kündigungsfrist:** 2 Wochen zum Monatsende""")
-    agb_akzeptiert = st.checkbox("Ich akzeptiere die Vertragsbedingungen und AGB. *", key="agb_check")
-
+    agb_akzeptiert = st.checkbox("Ich akzeptiere die Vertragsbedingungen und AGB. *")
+    
+    st.write("") # Extra-Abstand für sauberes Tippen auf dem Tablet
+    
     st.info("""**1. Gesundheitliche Eigenverantwortung & Wahrheitsgemäße Angaben**
 * **Eigenverantwortung:** Der Kunde versichert, dass er gesund ist und keine gesundheitlichen Einschränkungen vorliegen, die einer Teilnahme am Training entgegenstehen.
 * **Wahrheitspflicht:** Alle Angaben im Anamnesebogen wurden vollständig und wahrheitsgemäß gemacht. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.
@@ -61,88 +93,54 @@ if st.session_state.step == 1:
 
 **4. Befolgen von Anweisungen**
 * Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
-    haftungsausschluss = st.checkbox("Ich habe die Risiko- und Haftungserklärung gelesen und akzeptiere diese. *", key="haftung_check")
-
+    haftungsausschluss = st.checkbox("Ich habe die Risiko- und Haftungserklärung gelesen und akzeptiere diese. *")
+    
+    st.write("") # Extra-Abstand
+    
     st.info("""**Einwilligung in die Datenverarbeitung (Art. 9 DSGVO):**
 Ich willige ausdrücklich ein, dass meine gesundheitsbezogenen Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher Google Drive (Google Ireland Ltd.). Diese Einwilligung kann ich jederzeit mit Wirkung für die Zukunft widerrufen.""")
-    datenschutz_akzeptiert = st.checkbox("Ich willige in die Verarbeitung meiner gesundheitsbezogenen Daten ein. *", key="dsgvo_check")
+    datenschutz_akzeptiert = st.checkbox("Ich willige in die Verarbeitung meiner gesundheitsbezogenen Daten ein. *")
 
-    with st.form("anmeldung_form"):
-        st.subheader("👤 1. Persönliche Daten")
-        col1, col2 = st.columns(2)
-        with col1:
-            vorname = st.text_input("Vorname *")
-            nachname = st.text_input("Nachname *")
-            geburtsdatum = st.text_input("Geburtsdatum")
-        with col2:
-            email = st.text_input("E-Mail-Adresse *")
-            telefon = st.text_input("Telefonnummer")
-            adresse = st.text_input("Adresse (Straße, PLZ, Ort)")
-
-        st.subheader("🏋️ 2. Tarif & Ziele")
-        tarif = st.selectbox(
-            "Tarifauswahl", 
-            [
-                "Kurse 2x wöchentlich 59€", 
-                "Kleingruppen-Personal-Training 1x wöchentlich 99€", 
-                "Kleingruppen-Personal-Training 2x wöchentich 179€"
-            ]
-        )
-        experience = st.selectbox(
-            "Wie schätzt du deine Trainingserfahrung im Krafttraining ein?",
-            ["Anfänger (weniger als 6 Monate)", "Leicht fortgeschritten (6 Monate bis 2 Jahre)", "Fortgeschritten (über 2 Jahre)"]
-        )
-        main_goal = st.multiselect(
-            "Was sind deine Hauptziele bei Hinkelfit?",
-            ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"]
-        )
-
-        st.subheader("🖋️ 3. Unterschrift")
-        st.write("Bitte hier im weißen Feld unterschreiben:")
-        
-        canvas_result = st_canvas(
-            fill_color="rgba(255, 255, 255, 1)", 
-            stroke_width=3,
-            stroke_color="#000000",
-            background_color="#FFFFFF",
-            height=200,
-            width=700,
-            drawing_mode="freedraw",
-            key="canvas",
-        )
-
-        submit_button = st.form_submit_button("✅ Mitglied anmelden & weiter zur Anamnese")
+    st.markdown("---")
+    st.subheader("🖋️ 4. Unterschrift")
+    st.write("Bitte hier im weißen Feld unterschreiben:")
+    
+    canvas_result = st_canvas(
+        fill_color="rgba(255, 255, 255, 1)", 
+        stroke_width=3,
+        stroke_color="#000000",
+        background_color="#FFFFFF",
+        height=200,
+        width=700,
+        drawing_mode="freedraw",
+        key="canvas",
+    )
 
     # --- LOGIK BEIM ABSENDEN (SCHRITT 1) ---
-    if submit_button:
+    if st.button("✅ Mitglied anmelden & weiter zur Anamnese"):
         if not vorname or not nachname or not email:
             st.error("⚠️ Bitte mindestens Vorname, Nachname und E-Mail ausfüllen!")
-            st.stop()
+        elif not agb_akzeptiert or not datenschutz_akzeptiert or not haftungsausschluss:
+            st.error("⚠️ Bitte bestätige alle rechtlichen Bedingungen (AGB, Haftungsausschluss, Datenschutz) oberhalb der Unterschrift!")
+        elif canvas_result.image_data is None:
+            st.error("⚠️ Bitte eine Unterschrift eintragen!")
+        else:
+            # Daten zwischenspeichern für Schritt 2
+            st.session_state.member_data = {
+                "vorname": vorname,
+                "nachname": nachname,
+                "geburtsdatum": geburtsdatum,
+                "email": email,
+                "telefon": telefon,
+                "adresse": adresse,
+                "tarif": tarif,
+                "experience": experience,
+                "main_goal": main_goal,
+                "signature": canvas_result.image_data
+            }
             
-        if not agb_akzeptiert or not datenschutz_akzeptiert or not haftungsausschluss:
-            st.error("⚠️ Bitte bestätige alle rechtlichen Bedingungen (AGB, Haftungsausschluss, Datenschutz) oberhalb des Formulars!")
-            st.stop()
-            
-        if canvas_result.image_data is None:
-             st.error("⚠️ Bitte eine Unterschrift eintragen!")
-             st.stop()
-
-        # Daten zwischenspeichern für Schritt 2
-        st.session_state.member_data = {
-            "vorname": vorname,
-            "nachname": nachname,
-            "geburtsdatum": geburtsdatum,
-            "email": email,
-            "telefon": telefon,
-            "adresse": adresse,
-            "tarif": tarif,
-            "experience": experience,
-            "main_goal": main_goal,
-            "signature": canvas_result.image_data
-        }
-        
-        st.session_state.step = 2
-        st.rerun()
+            st.session_state.step = 2
+            st.rerun()
 
 # -------------------------------------------------------------------------
 # SCHRITT 2: ANAMNESEBOGEN
@@ -151,36 +149,35 @@ elif st.session_state.step == 2:
     st.title("🩺 Anamnesebogen & Gesundheitsstatus")
     st.write(f"Vielen Dank, {st.session_state.member_data['vorname']}! Bitte fülle nun den Anamnesebogen aus.")
 
-    with st.form("anamnese_form"):
-        st.write("**Herz-Kreislauf-System und Gefäße**")
-        cb_bluthochdruck = st.checkbox("Bluthochdruck")
-        cb_herzinfarkt = st.checkbox("Herzinfarkt (in der Vergangenheit)")
-        cb_schlaganfall = st.checkbox("Schlaganfall (in der Vergangenheit)")
-        cb_rhythmus = st.checkbox("Herzrhythmusstörungen")
-        cardiovascular_other = st.text_input("Sonstiges / Weitere Details zu Herz-Kreislauf:")
+    st.write("**Herz-Kreislauf-System und Gefäße**")
+    cb_bluthochdruck = st.checkbox("Bluthochdruck")
+    cb_herzinfarkt = st.checkbox("Herzinfarkt (in der Vergangenheit)")
+    cb_schlaganfall = st.checkbox("Schlaganfall (in der Vergangenheit)")
+    cb_rhythmus = st.checkbox("Herzrhythmusstörungen")
+    cardiovascular_other = st.text_input("Sonstiges / Weitere Details zu Herz-Kreislauf:")
 
-        st.write("**Bewegungsapparat, Gelenke und Wirbelsäule**")
-        cb_ruecken = st.checkbox("Beschwerden im unteren Rücken / Lendenwirbelsäule")
-        cb_gelenke = st.checkbox("Gelenkbeschwerden (z. B. Schulter, Knie)")
-        cb_artif_joint = st.checkbox("Künstliches Gelenk vorhanden")
-        cb_wirbelsaeule = st.checkbox("Sonstige Wirbelsäulenbeschwerden")
-        musculoskeletal_other = st.text_input("Sonstiges / Weitere Details zum Bewegungsapparat:")
+    st.write("**Bewegungsapparat, Gelenke und Wirbelsäule**")
+    cb_ruecken = st.checkbox("Beschwerden im unteren Rücken / Lendenwirbelsäule")
+    cb_gelenke = st.checkbox("Gelenkbeschwerden (z. B. Schulter, Knie)")
+    cb_artif_joint = st.checkbox("Künstliches Gelenk vorhanden")
+    cb_wirbelsaeule = st.checkbox("Sonstige Wirbelsäulenbeschwerden")
+    musculoskeletal_other = st.text_input("Sonstiges / Weitere Details zum Bewegungsapparat:")
 
-        st.write("**Stoffwechsel, Organe und Atmung**")
-        cb_diabetes = st.checkbox("Diabetes mellitus")
-        cb_asthma = st.checkbox("Asthma oder chronische Atemwegserkrankungen")
-        cb_cramps = st.checkbox("Neigung zu Krämpfen")
-        cb_epilepsy = st.checkbox("Epilepsie")
-        cb_organe = st.checkbox("Erkrankungen der inneren Organe (Niere, Leber etc.)")
-        metabolism_other = st.text_input("Sonstiges / Weitere Details zu Stoffwechsel & Organen:")
+    st.write("**Stoffwechsel, Organe und Atmung**")
+    cb_diabetes = st.checkbox("Diabetes mellitus")
+    cb_asthma = st.checkbox("Asthma oder chronische Atemwegserkrankungen")
+    cb_cramps = st.checkbox("Neigung zu Krämpfen")
+    cb_epilepsy = st.checkbox("Epilepsie")
+    cb_organe = st.checkbox("Erkrankungen der inneren Organe (Niere, Leber etc.)")
+    metabolism_other = st.text_input("Sonstiges / Weitere Details zu Stoffwechsel & Organen:")
 
-        st.write("**Operationen, Verletzungen und Medikamente**")
-        surgeries_meds = st.text_area("Gab es Operationen oder schwerwiegende Verletzungen? Nimmst du regelmäßige Medikamente ein?")
+    st.write("**Operationen, Verletzungen und Medikamente**")
+    surgeries_meds = st.text_area("Gab es Operationen oder schwerwiegende Verletzungen? Nimmst du regelmäßige Medikamente ein?")
 
-        submit_anamnese = st.form_submit_button("✅ Registrierung abschließen")
-
+    st.markdown("---")
+    
     # --- LOGIK BEIM ABSENDEN (SCHRITT 2) ---
-    if submit_anamnese:
+    if st.button("✅ Registrierung abschließen & Unterlagen speichern"):
         with st.spinner("Verarbeite Anmeldung... (Google Tabelle, E-Mail & Cloud werden synchronisiert)"):
             try:
                 # Anamnese-Daten zusammenfassen
@@ -316,11 +313,20 @@ elif st.session_state.step == 2:
 
                 st.success(f"🎉 {m_data['vorname']} {m_data['nachname']} wurde erfolgreich angelegt, die E-Mail verschickt und der Cloud-Ordner erstellt!")
                 
-                # Zurücksetzen für das nächste Mitglied
-                if st.button("🔄 Nächste Anmeldung starten"):
-                     st.session_state.step = 1
-                     st.session_state.member_data = {}
-                     st.rerun()
+                st.session_state.step = 3
+                st.rerun()
 
             except Exception as e:
                 st.error(f"❌ Fehler bei der Verarbeitung: {e}")
+
+# -------------------------------------------------------------------------
+# SCHRITT 3: ERFOLGSMELDUNG & RESET
+# -------------------------------------------------------------------------
+elif st.session_state.step == 3:
+    st.balloons()
+    st.success("✅ Alles erledigt! Die Registrierung ist vollständig abgeschlossen.")
+    
+    if st.button("🔄 Neues Mitglied anlegen"):
+         st.session_state.step = 1
+         st.session_state.member_data = {}
+         st.rerun()
