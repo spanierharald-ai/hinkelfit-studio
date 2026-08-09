@@ -47,7 +47,7 @@ def send_hinkelfit_email(to_email, to_name, subject, body_content_html):
             <p>Hallo {to_name},</p>
             {body_content_html}
             <br>
-            <p>Sportliche Grüße<br>Harald</p>
+            <p>Sportliche Grüße<br>Harald<br><b>Hinkelfit</b></p>
             <br>
             <img src="cid:logo" alt="Hinkelfit Logo" style="width: 250px;">
         </body>
@@ -212,6 +212,12 @@ except Exception:
     df_members = pd.DataFrame()
 
 if not df_members.empty:
+    # --- SAUBERE LÖSUNG: Spalte "Name" global für das ganze Skript anlegen ---
+    if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+        df_members["Name"] = df_members["Vorname"] + " " + df_members["Nachname"]
+    else:
+        df_members["Name"] = "Unbekannt"
+
     # Sicherstellen, dass alle nötigen Spalten existieren
     needs_update = False
     if "Status" not in df_members.columns:
@@ -240,7 +246,7 @@ if not df_members.empty:
                 pass
                 
     if needs_update:
-        conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+        conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
         st.cache_data.clear()
 
 if df_members.empty:
@@ -297,7 +303,7 @@ with tab1:
 
         teilnehmer = st.multiselect(
             f"Mitglieder hinzufügen (Optional - Filter: {termin_art})", 
-            (eligible_members["Vorname"] + " " + eligible_members["Nachname"]).tolist() if not eligible_members.empty else []
+            eligible_members["Name"].tolist() if not eligible_members.empty else []
         )
         submitted = st.form_submit_button("Neuen Termin in die Cloud speichern")
 
@@ -519,13 +525,15 @@ with tab3:
         elif val == 'Inaktiv': return 'color: red;'
         return 'color: green;'
     
-    styled_df = df_members.style.map(style_status, subset=['Status'])
+    # Drop 'Name' for visual representation so it matches your old table if desired (optional)
+    styled_df = df_members.drop(columns=["Name"], errors="ignore").style.map(style_status, subset=['Status'])
     st.dataframe(styled_df, use_container_width=True)
     
     st.markdown("---")
     st.subheader("⚙️ Vertragsstatus & Kündigung bearbeiten")
     
-   member_options = df_members.apply(lambda x: f"{x['Mitglieder_ID']} | {x['Vorname']} {x['Nachname']} (Status: {x['Status']})", axis=1).tolist()
+    # Hier funktioniert 'Name' nun einwandfrei
+    member_options = df_members.apply(lambda x: f"{x['Mitglieder_ID']} | {x['Name']} (Status: {x['Status']})", axis=1).tolist()
     manage_member_selection = st.selectbox("Mitglied auswählen:", member_options)
     
     if manage_member_selection:
@@ -535,7 +543,7 @@ with tab3:
         member_idx = df_members.index[df_members["Mitglieder_ID"] == selected_id].tolist()[0]
         current_status = df_members.at[member_idx, "Status"]
         member_email = df_members.at[member_idx, "Email"]
-        beitrittsdatum = df_members.at[member_idx, "Beitrittsdatum"]
+        beitrittsdatum = df_members.at[member_idx, "Beitrittsdatum"] if "Beitrittsdatum" in df_members.columns else ""
         kuendigung_eingang_db = df_members.at[member_idx, "Kündigungs_Eingang"]
         vertrags_ende_db = df_members.at[member_idx, "Vertrags_Ende"]
         
@@ -553,19 +561,20 @@ with tab3:
             
             if st.button("🚀 Kündigung in der Cloud erfassen & Bestätigungs-Mail senden"):
                 # Vertragsende berechnen
-                vertrags_ende_date = calculate_contract_end(beitrittsdatum, kuendigung_datum)
+                vertrags_ende_date = calculate_contract_end(str(beitrittsdatum), kuendigung_datum)
                 
                 # In Datenbank schreiben
                 df_members.at[member_idx, "Status"] = "Gekündigt"
                 df_members.at[member_idx, "Kündigungs_Eingang"] = str(kuendigung_datum)
                 df_members.at[member_idx, "Vertrags_Ende"] = str(vertrags_ende_date)
                 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                # Wir droppen die Name Spalte beim Speichern, um die Ursprungs-Datenbank sauber zu halten
+                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 
                 # E-Mail versenden
                 if pd.notna(member_email) and "@" in str(member_email):
-                    vorname = selected_name.split()[0]
+                    vorname = df_members.at[member_idx, "Vorname"]
                     subject = "Bestätigung deiner Kündigung bei Hinkelfit"
                     
                     body = f"""
@@ -588,7 +597,7 @@ with tab3:
             new_manual_status = st.selectbox("Status auf einen Wert setzen:", ["Aktiv", "Gekündigt", "Inaktiv"], index=["Aktiv", "Gekündigt", "Inaktiv"].index(current_status) if current_status in ["Aktiv", "Gekündigt", "Inaktiv"] else 0)
             if st.button("💾 Manuellen Status speichern"):
                 df_members.at[member_idx, "Status"] = new_manual_status
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 st.success(f"Status von {selected_name} auf '{new_manual_status}' in der Cloud geändert.")
                 st.rerun()
