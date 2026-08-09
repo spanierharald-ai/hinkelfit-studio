@@ -517,15 +517,39 @@ with tab2:
     upcoming_bdays, bdays_today = [], []
     
     for _, row in df_active_members.iterrows():
-        try:
-            dob = datetime.datetime.strptime(str(row.get("Geburtsdatum", "")), "%d.%m.%Y").date()
-            next_bday = datetime.date(today.year, dob.month, dob.day)
-            if next_bday < today: next_bday = datetime.date(today.year + 1, dob.month, dob.day)
-            days_until = (next_bday - today).days
-            info = {"Name": row["Name"], "Email": row.get("E-Mail", ""), "Wird ... Jahre alt": next_bday.year - dob.year, "In ... Tagen": days_until}
-            if days_until == 0: bdays_today.append(info)
-            elif 1 <= days_until <= 30: upcoming_bdays.append(info)
-        except: pass 
+        raw_dob = row.get("Geburtsdatum", "")
+        if pd.notna(raw_dob) and str(raw_dob).strip() != "" and str(raw_dob).strip() != "nan":
+            try:
+                # Robustes Einlesen des Datums (egal welches Format Google Sheets ausspuckt)
+                dob = pd.to_datetime(raw_dob, dayfirst=True).date()
+                
+                # Schutz vor Schaltjahr-Abstürzen (29. Februar)
+                try:
+                    next_bday = datetime.date(today.year, dob.month, dob.day)
+                except ValueError:
+                    next_bday = datetime.date(today.year, 3, 1) # Wird in Nicht-Schaltjahren auf 1. März gelegt
+                    
+                # Wenn der Geburtstag dieses Jahr schon war, auf nächstes Jahr setzen
+                if next_bday < today:
+                    try:
+                        next_bday = datetime.date(today.year + 1, dob.month, dob.day)
+                    except ValueError:
+                        next_bday = datetime.date(today.year + 1, 3, 1)
+                        
+                days_until = (next_bday - today).days
+                info = {
+                    "Name": row.get("Name", "Unbekannt"), 
+                    "Email": row.get("E-Mail", ""), 
+                    "Wird ... Jahre alt": next_bday.year - dob.year, 
+                    "In ... Tagen": days_until
+                }
+                
+                if days_until == 0: 
+                    bdays_today.append(info)
+                elif 1 <= days_until <= 30: 
+                    upcoming_bdays.append(info)
+            except Exception:
+                pass 
             
     if bdays_today:
         st.balloons()
@@ -539,9 +563,12 @@ with tab2:
                     body = "<p>ich wünsche dir alles erdenklich Gute zum Geburtstag! Bleib gesund, stark und weiterhin so motiviert.</p><p>Als kleines Geschenk möchte ich dir 15% Nachlass auf deinen nächsten Kauf eines Kleingruppen-Personal-Trainings geben!</p><p>Melde dich einfach beim nächsten Mal bei mir im Studio, um den Rabatt einzulösen.</p>"
                     if send_hinkelfit_email(bkid["Email"], name, "Herzlichen Glückwunsch zum Geburtstag! 🎉", body):
                         st.success("E-Mail gesendet!")
+                        
     st.subheader("Vorschau: Nächste 30 Tage (Aktive Mitglieder)")
-    if upcoming_bdays: st.dataframe(pd.DataFrame(upcoming_bdays).drop(columns=["Email"]).sort_values("In ... Tagen"), use_container_width=True)
-    else: st.info("Keine Geburtstage aktiver Mitglieder in den nächsten 30 Tagen.")
+    if upcoming_bdays: 
+        st.dataframe(pd.DataFrame(upcoming_bdays).drop(columns=["Email"]).sort_values("In ... Tagen"), use_container_width=True)
+    else: 
+        st.info("Keine Geburtstage aktiver Mitglieder in den nächsten 30 Tagen.")
 
 # -------------------------------------------------------------------------
 # TAB 3: MITGLIEDER-LISTE & VERTRAGSKÜNDIGUNG
