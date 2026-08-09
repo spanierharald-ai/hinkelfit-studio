@@ -1,478 +1,364 @@
-import datetime
-import os
-from email.mime.application import MIMEApplication
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
-import smtplib
-from fpdf import FPDF
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import pandas as pd
 import streamlit as st
-import altair as alt
+import pandas as pd
+import os
+from datetime import datetime
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 from streamlit_gsheets import GSheetsConnection
 
-class ModernPDFReport(FPDF):
-    def header(self):
-        self.set_fill_color(15, 23, 42)
-        self.rect(0, 0, 210, 15, "F")
+# Seitenkonfiguration
+st.set_page_config(page_title="Hinkelfit Trainingspläne & Vorlagen", page_icon="🏋️", layout="wide")
 
-        self.set_font("Arial", "B", 12)
-        self.set_text_color(255, 255, 255)
-        self.set_xy(10, 3)
-        self.cell(
-            0,
-            10,
-            "HINKELFIT - MONATLICHE ERFOLGSMESSUNG".encode("latin-1", "replace").decode("latin-1"),
-            0,
-            0,
-            "L",
-        )
-        self.ln(20)
-
-    def footer(self):
-        self.set_y(-12)
-        self.set_font("Arial", "I", 8)
-        self.set_text_color(148, 163, 184)
-        page_text = (
-            f"Hinkelfit Wittislingen | Erstellt am"
-            f" {datetime.date.today().strftime('%d.%m.%Y')} | Seite"
-            f" {str(self.page_no())}"
-        )
-        self.cell(
-            0,
-            10,
-            page_text.encode("latin-1", "replace").decode("latin-1"),
-            0,
-            0,
-            "C",
-        )
-
-st.set_page_config(
-    page_title="Hinkelfit Leistungsverlauf", page_icon="📈", layout="centered"
-)
+st.title("🏋️ Trainingspläne, Vorlagen & Leistungsverlauf")
+st.write("Verwalte eigene Templates für Zirkel, EMOMs und Kraftblöcke, erfasse Einheiten und tracke den Fortschritt.")
 
 # --- GOOGLE SHEETS VERBINDUNG ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Basis-Ordner für PDF-Zwischenspeicherung & Bilder bleibt lokal
-BASE_DIR = r"C:\Users\carol\Desktop\HinkelFit\Planung Wittislingen\Anmeldung"
-
-st.title("Hinkelfit - Monatliche Erfolgsmessung")
-st.write("Erfasse und verfolge die Trainingsdaten, Leistungen und den Fortschritt der Mitglieder.")
-
-# --- DATEN AUS GOOGLE SHEETS LESEN ---
+# --- MITGLIEDER AUS DER CLOUD LADEN ---
 try:
     df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
     df_members = df_members.dropna(how="all")
 except Exception:
     df_members = pd.DataFrame()
 
-if not df_members.empty and "Name" in df_members.columns:
-    st.subheader("Mitglied auswählen")
-    selected_member_name = st.selectbox("Mitglied:", df_members["Name"].tolist())
+if df_members.empty:
+    st.warning("Keine Mitglieder in der Cloud gefunden. Bitte lege zuerst Mitglieder an.")
+    st.stop()
 
-    member_data = df_members[df_members["Name"] == selected_member_name].iloc[0]
-    member_email = member_data["Email"]
+# --- SAUBERE LÖSUNG: Hilfsspalte "Name" für das Dropdown ---
+if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+    df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
+else:
+    df_members["Name"] = "Unbekannt"
 
-    st.markdown("---")
-    st.markdown(f"**Aktuelles Mitglied:** {member_data['Name']}")
-    st.markdown(f"**E-Mail-Adresse:** {member_email}")
-    st.markdown(f"**Gewählter Tarif:** {member_data['Tarif']}")
-    st.markdown(f"**Mitglied seit:** {member_data['Beitrittsdatum']}")
-    st.markdown("---")
+# --- MITGLIED AUSWÄHLEN ---
+member_options = df_members.apply(
+    lambda x: f"{x['Mitglieder_ID']} | {x['Name']}", 
+    axis=1
+).tolist()
 
-    st.subheader("Monatlichen Erfolg dokumentieren")
-    training_date = st.date_input("Datum des Check-ups", value=datetime.date.today())
+selected_member_str = st.selectbox("Mitglied auswählen:", member_options)
+sel_id = selected_member_str.split(" | ")[0]
+sel_name = selected_member_str.split(" | ")[1]
 
-    exercise_type = st.selectbox(
-        "Trainingsschwerpunkt",
-        ["Krafttraining", "Funktionelles Training", "Kondition"],
+# Lokaler Pfad nur für PDF-Export-Downloads benötigt
+BASE_DIR = r"C:\Users\carol\Desktop\HinkelFit\Planung Wittislingen\Anmeldung"
+MEMBERS_DIR = os.path.join(BASE_DIR, "mitglieder")
+safe_member_name = "".join([c if c.isalnum() else "_" for c in sel_name])
+member_folder = os.path.join(MEMBERS_DIR, f"{sel_id}_{safe_member_name}")
+os.makedirs(member_folder, exist_ok=True)
+
+st.markdown("---")
+
+# --- HISTORIE AUS GOOGLE SHEETS LADEN ---
+try:
+    df_hist_all = conn.read(spreadsheet=SHEET_URL, worksheet="Historie", ttl=0)
+    df_hist_all = df_hist_all.dropna(how="all")
+except Exception:
+    df_hist_all = pd.DataFrame()
+
+# Filtern nach ausgewähltem Mitglied (entweder über ID oder Name)
+if not df_hist_all.empty and "Name" in df_hist_all.columns:
+    df_hist_check = df_hist_all[df_hist_all["Name"] == sel_name].copy()
+else:
+    df_hist_check = pd.DataFrame()
+
+if not df_hist_check.empty:
+    df_hist_check["Datum_Parsed"] = pd.to_datetime(df_hist_check["Datum"], errors="coerce")
+    latest_date = df_hist_check["Datum_Parsed"].max()
+    
+    if pd.notna(latest_date):
+        latest_str = latest_date.strftime("%Y-%m-%d")
+        df_last_session = df_hist_check[df_hist_check["Datum"] == latest_str]
+        
+        with st.expander(f"👀 Letzte Trainingseinheit vom {latest_str} (Zum Vergleichen anklicken)"):
+            cols_to_show = [c for c in ["Block", "Modus", "Uebung", "Sätze/Runden", "Wiederholungen/Distanz", "Gewicht", "Pause_Belastung", "Notizen"] if c in df_last_session.columns]
+            st.dataframe(
+                df_last_session[cols_to_show],
+                use_container_width=True,
+                hide_index=True
+            )
+
+# --- TABS FÜR HAUPTSTRUKTUR ---
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📝 Plan & aktuelle Werte erfassen", 
+    "⚙️ Vorlagen verwalten (Templates)", 
+    "📈 Leistungsverlauf", 
+    "📄 PDF Export"
+])
+
+# ================= TAB 1: PLAN & EINTRAGUNG =================
+with tab1:
+    st.subheader("Trainingseinheit für Mitglied zusammenstellen")
+    
+    # Vorlagen aus Google Sheets laden, falls vorhanden
+    template_names = ["Keine (Manuell starten)"]
+    try:
+        df_templates_list = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
+        df_templates_list = df_templates_list.dropna(how="all")
+        if not df_templates_list.empty and "Template_Name" in df_templates_list.columns:
+            template_names += df_templates_list["Template_Name"].unique().tolist()
+    except Exception:
+        pass
+            
+    selected_template = st.selectbox("⚡ Eigene Vorlage (Template) laden:", template_names)
+    
+    # Daten initialisieren
+    initial_editor_data = [
+        {"Block": "Kraft", "Modus": "Normal", "Uebung": "Kniebeuge", "Sätze/Runden": "5", "Wiederholungen/Distanz": "5", "Gewicht": "100 kg", "Pause_Belastung": "2 Min."},
+    ]
+    initial_block_name = "Starting Strength"
+    
+    if selected_template != "Keine (Manuell starten)":
+        try:
+            df_t_load = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
+            df_filtered_t = df_t_load[df_t_load["Template_Name"] == selected_template]
+            if not df_filtered_t.empty:
+                initial_block_name = selected_template
+                initial_editor_data = df_filtered_t[["Block", "Modus", "Uebung", "Sätze/Runden", "Wiederholungen/Distanz", "Gewicht", "Pause_Belastung"]].to_dict(orient="records")
+        except Exception:
+            pass
+
+    col_date, col_block = st.columns(2)
+    with col_date:
+        training_date = st.date_input("Datum der Einheit:", value=datetime.today())
+    with col_block:
+        block_name = st.text_input("Bezeichnung des Blocks / der Einheit:", value=initial_block_name)
+
+    st.markdown("Passe die Übungen, Modi (z.B. EMOM, Zirkel, Normal) und Werte für diese Session an:")
+
+    edited_df = st.data_editor(
+        pd.DataFrame(initial_editor_data),
+        num_rows="dynamic",
+        use_container_width=True,
+        key="training_input_editor"
+    )
+    
+    notes_input = st.text_area("Trainer-Notizen (z.B. Technik, Tagesform, Besonderheiten):", value="")
+
+    if st.button("💾 Werte in Cloud-Historie speichern & Plan sichern"):
+        if edited_df.empty or edited_df["Uebung"].astype(str).str.strip().eq("").all():
+            st.error("Bitte mindestens eine gültige Übung eintragen.")
+        else:
+            new_rows = []
+            date_str = training_date.strftime("%Y-%m-%d")
+            
+            for _, row in edited_df.iterrows():
+                uebung = str(row["Uebung"]).strip()
+                if uebung:
+                    new_rows.append({
+                        "Name": sel_name,
+                        "Datum": date_str,
+                        "Block": str(row["Block"]),
+                        "Modus": str(row["Modus"]),
+                        "Uebung": uebung,
+                        "Sätze/Runden": str(row["Sätze/Runden"]),
+                        "Wiederholungen/Distanz": str(row["Wiederholungen/Distanz"]),
+                        "Gewicht": str(row["Gewicht"]),
+                        "Pause_Belastung": str(row["Pause_Belastung"]),
+                        "Notizen": notes_input
+                    })
+            
+            df_new_entries = pd.DataFrame(new_rows)
+            
+            if not df_hist_all.empty:
+                df_combined = pd.concat([df_hist_all, df_new_entries], ignore_index=True)
+            else:
+                df_combined = df_new_entries
+                
+            conn.update(spreadsheet=SHEET_URL, worksheet="Historie", data=df_combined)
+            st.cache_data.clear()
+            st.success("Trainingsdaten erfolgreich in der Cloud-Historie gespeichert!")
+            st.rerun()
+
+
+# ================= TAB 2: VORLAGEN VERWALTEN =================
+with tab2:
+    st.subheader("⚙️ Eigene Trainingsvorlagen erstellen & bearbeiten")
+    st.write("Hier kannst du wiederkehrende Zirkel (z.B. EMOM-Formate) oder Kraftpläne einmalig anlegen und unter einem Namen abspeichern.")
+
+    new_template_name = st.text_input("Name der neuen Vorlage (z.B. Freitag EMOM & Core):", value="")
+    
+    template_builder_data = [
+        {"Block": "Zirkel", "Modus": "EMOM 15 Min", "Uebung": "Kreuzheben", "Sätze/Runden": "1 Min.", "Wiederholungen/Distanz": "5 Wd.", "Gewicht": "90 kg", "Pause_Belastung": "Rest der Minute"},
+        {"Block": "Zirkel", "Modus": "EMOM 15 Min", "Uebung": "Airbike", "Sätze/Runden": "1 Min.", "Wiederholungen/Distanz": "200m", "Gewicht": "High Pace", "Pause_Belastung": "Rest der Minute"},
+        {"Block": "Zirkel", "Modus": "EMOM 15 Min", "Uebung": "Burpees", "Sätze/Runden": "1 Min.", "Wiederholungen/Distanz": "10 Wd.", "Gewicht": "Bodyweight", "Pause_Belastung": "Rest der Minute"},
+    ]
+    
+    edited_template_df = st.data_editor(
+        pd.DataFrame(template_builder_data),
+        num_rows="dynamic",
+        use_container_width=True,
+        key="template_builder_editor"
     )
 
-    with st.form("performance_form"):
-        st.markdown("### Basis Check")
-        col_base1, col_base2 = st.columns(2)
-        with col_base1:
-            koerpergewicht = st.number_input(
-                "Körpergewicht (kg)", min_value=0.0, step=0.1, format="%.1f", value=0.0
-            )
-        with col_base2:
-            schmerzen = st.selectbox(
-                "Aktuelle Schmerzen / Beschwerden",
-                ["Keine", "Leicht", "Mittel", "Stark"],
-            )
-
-        st.markdown("---")
-        details = {}
-
-        if exercise_type == "Krafttraining":
-            st.markdown("### Krafttraining Details")
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                details["Drueckende_Uebung"] = st.selectbox("Drückende Übung", ["Bankdrücken", "Über-Kopf-Drücken"])
-            with c2:
-                details["Gewicht_Drueckende_Uebung"] = st.number_input("Gewicht Drückende Übung (kg)", min_value=0.0, step=0.5, format="%.1f", value=0.0)
-
-            c_pull1, c_pull2 = st.columns(2)
-            with c_pull1:
-                st.text("Ziehende Übung")
-                details["Ziehende_Uebung"] = "Chinesische Ruderbank"
-            with c_pull2:
-                details["Gewicht_Chinesische_Ruderbank"] = st.number_input("Gewicht Chinesische Ruderbank (kg)", min_value=0.0, step=0.5, format="%.1f", value=0.0)
-
-            c3, c4 = st.columns(2)
-            with c3:
-                st.text("Kniebeuge")
-                details["Uebung_Kniebeuge"] = "Kniebeuge"
-            with c4:
-                details["Gewicht_Kniebeuge"] = st.number_input("Gewicht Kniebeuge (kg)", min_value=0.0, step=0.5, format="%.1f", value=0.0)
-
-            c5, c6 = st.columns(2)
-            with c5:
-                st.text("Kreuzheben")
-                details["Uebung_Kreuzheben"] = "Kreuzheben"
-            with c6:
-                details["Gewicht_Kreuzheben"] = st.number_input("Gewicht Kreuzheben (kg)", min_value=0.0, step=0.5, format="%.1f", value=0.0)
-
-        elif exercise_type == "Funktionelles Training":
-            st.markdown("### Funktionelles Training Details")
-            details["Sandsack_Uebung"] = "Sandsack über Schulter"
-            details["Sandsack_Gewicht"] = st.number_input("Sandsack über Schulter - Gewicht (kg)", min_value=0.0, step=0.5, format="%.1f", value=0.0)
-
-            details["KB_Uebung"] = "Kettlebell Swings 10 Minuten"
-            details["KB_Wdh"] = st.number_input("Kettlebell Swings 10 Minuten - Wiederholungen", min_value=0, step=1, value=0)
-
-            details["SS_Uebung"] = "Secret Service Snatch Test 10 Minuten"
-            details["SS_Wdh"] = st.number_input("Secret Service Snatch Test 10 Minuten - Wiederholungen", min_value=0, step=1, value=0)
-
-        elif exercise_type == "Kondition":
-            st.markdown("### Kondition Details")
-            c1, c2 = st.columns(2)
-            with c1:
-                details["Ausdauer_Geraet"] = st.selectbox("Gerät (1000 Meter)", ["Airbike", "Ruderergometer"])
-            with c2:
-                details["Ausdauer_Zeit"] = st.text_input("Zeit für 1000 Meter", placeholder="z.B. 3:45 min")
-
-            details["Zirkel_Uebung"] = "400er Zirkel"
-            details["Zirkel_Zeit"] = st.text_input("Zeit für 400er Zirkel", placeholder="Zeit eingeben")
-
-            details["Tragen_Uebung"] = "Sandsack 50 Meter tragen"
-            details["Tragen_Gewicht"] = st.number_input("Sandsack 50 Meter tragen - Gewicht (kg)", min_value=0.0, step=0.5, format="%.1f", value=0.0)
-
-        trainer_notes = st.text_area("Trainer-Notizen & Feedback", placeholder="Notizen hier eintragen...")
-
-        col_save, col_mail = st.columns(2)
-        with col_save:
-            submit_performance = st.form_submit_button("Leistungsdaten speichern")
-        with col_mail:
-            submit_email = st.form_submit_button("Auswertung per E-Mail senden")
-
-        safe_name = selected_member_name.strip().replace(" ", "_")
-        member_dir = os.path.join(BASE_DIR, "mitglieder", safe_name)
-
-        if submit_performance or submit_email:
-            os.makedirs(member_dir, exist_ok=True)
-
-            row_data = {
-                "Name": selected_member_name,  # WICHTIG: Damit wir wissen, wem der Eintrag in der zentralen Historie gehört
-                "Datum": str(training_date),
-                "Koerpergewicht": koerpergewicht,
-                "Schmerzen": schmerzen,
-                "Bereich": exercise_type,
-                "Notizen": trainer_notes,
-            }
-            row_data.update(details)
-
-            new_entry = pd.DataFrame([row_data])
-
-            # --- HISTORIE AUS GOOGLE SHEETS LADEN & UPDATEN ---
-            try:
-                df_history_all = conn.read(spreadsheet=SHEET_URL, worksheet="Historie", ttl=0)
-                df_history_all = df_history_all.dropna(how="all")
-            except Exception:
-                df_history_all = pd.DataFrame()
-
-            if not df_history_all.empty:
-                df_history_all = pd.concat([df_history_all, new_entry], ignore_index=True, sort=False)
-            else:
-                df_history_all = new_entry
-
-            # Zurück in Google Sheets schreiben
-            conn.update(spreadsheet=SHEET_URL, worksheet="Historie", data=df_history_all)
-            st.cache_data.clear() # Cache leeren, damit die neue Zeile sofort sichtbar ist
-
-            # Nur die Daten dieses speziellen Mitglieds für die PDF-Erstellung filtern
-            df_history = df_history_all[df_history_all["Name"] == selected_member_name].copy()
-
-            if submit_performance:
-                st.success(f"Die Leistungsdaten für {selected_member_name} wurden zentral in der Cloud gespeichert!")
-
-            if submit_email:
-                try:
-                    pdf_filename = os.path.join(member_dir, f"Erfolgsmessung_{training_date.strftime('%Y-%m-%d')}.pdf")
-
-                    df_plot = df_history.copy()
-                    if "Datum" in df_plot.columns:
-                        df_plot["Datum"] = pd.to_datetime(df_plot["Datum"])
-                        df_plot = df_plot.sort_values("Datum")
-
-                    plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
-
-                    chart_weight_path = os.path.join(member_dir, "temp_weight_chart.png")
-                    if not df_plot.empty and "Koerpergewicht" in df_plot.columns and df_plot["Koerpergewicht"].sum() > 0:
-                        fig, ax = plt.subplots(figsize=(6.5, 2.2))
-                        ax.plot(
-                            df_plot["Datum"], df_plot["Koerpergewicht"], marker="o", color="#2563eb",
-                            linewidth=2.5, markersize=6, markerfacecolor="#ffffff", markeredgewidth=2, markeredgecolor="#2563eb"
-                        )
-                        ax.set_title("Körpergewicht-Verlauf (kg)", fontsize=10, fontweight="bold", color="#1e293b", pad=10)
-                        ax.set_xlabel("Kalendertag", fontsize=8, color="#1e293b")
-                        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
-                        ax.tick_params(axis="both", labelsize=8, colors="#475569")
-                        ax.grid(True, linestyle="--", alpha=0.5, color="#cbd5e1")
-                        fig.tight_layout()
-                        fig.savefig(chart_weight_path, dpi=300)
-                        plt.close(fig)
-
-                    chart_area_path = os.path.join(member_dir, "temp_area_chart.png")
-                    df_area_plot = df_plot[df_plot["Bereich"] == exercise_type]
-                    if not df_area_plot.empty:
-                        fig, ax = plt.subplots(figsize=(6.5, 2.5))
-                        plotted_cols = False
-                        colors = ["#0284c7", "#10b981", "#f59e0b", "#8b5cf6"]
-
-                        if exercise_type == "Krafttraining":
-                            cols_to_plot = [c for c in ["Gewicht_Drueckende_Uebung", "Gewicht_Chinesische_Ruderbank", "Gewicht_Kniebeuge", "Gewicht_Kreuzheben"] if c in df_area_plot.columns]
-                            if cols_to_plot:
-                                for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], df_area_plot[col], marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=colors[i % len(colors)])
-                                plotted_cols = True
-                        elif exercise_type == "Funktionelles Training":
-                            cols_to_plot = [c for c in ["Sandsack_Gewicht", "KB_Wdh", "SS_Wdh"] if c in df_area_plot.columns]
-                            if cols_to_plot:
-                                for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], df_area_plot[col], marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=colors[i % len(colors)])
-                                plotted_cols = True
-                        elif exercise_type == "Kondition":
-                            cols_to_plot = [c for c in ["Tragen_Gewicht"] if c in df_area_plot.columns]
-                            if cols_to_plot:
-                                for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], df_area_plot[col], marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=colors[i % len(colors)])
-                                plotted_cols = True
-
-                        if plotted_cols:
-                            ax.set_title(f"Verlauf für Schwerpunkt: {exercise_type}", fontsize=10, fontweight="bold", color="#1e293b", pad=10)
-                            ax.set_xlabel("Kalendertag", fontsize=8, color="#1e293b")
-                            ax.set_ylabel("Gewicht", fontsize=8, color="#1e293b")
-                            ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
-                            ax.tick_params(axis="both", labelsize=8, colors="#475569")
-                            ax.legend(fontsize=8, loc="upper left", frameon=True)
-                            ax.grid(True, linestyle="--", alpha=0.5, color="#cbd5e1")
-                            fig.tight_layout()
-                            fig.savefig(chart_area_path, dpi=300)
-                            plt.close(fig)
-
-                    pdf = ModernPDFReport()
-                    pdf.add_page()
-                    pdf.set_fill_color(248, 250, 252)
-                    pdf.set_draw_color(226, 232, 240)
-                    pdf.rect(10, 20, 190, 28, "DF")
-
-                    pdf.set_xy(15, 23)
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.set_text_color(15, 23, 42)
-                    pdf.cell(95, 6, txt=f"Mitglied: {selected_member_name}".encode("latin-1", "replace").decode("latin-1"), ln=0)
-                    pdf.cell(85, 6, txt=f"Tarif: {member_data['Tarif']}".encode("latin-1", "replace").decode("latin-1"), ln=1)
-
-                    pdf.set_x(15)
-                    pdf.set_font("Arial", "", 9)
-                    pdf.set_text_color(71, 85, 105)
-                    pdf.cell(95, 6, txt=f"Check-up Datum: {training_date.strftime('%d.%m.%Y')}", ln=0)
-                    pdf.cell(85, 6, txt=f"Mitglied seit: {member_data['Beitrittsdatum']}", ln=1)
-
-                    pdf.set_x(15)
-                    pdf.cell(95, 6, txt=f"Schwerpunkt: {exercise_type}".encode("latin-1", "replace").decode("latin-1"), ln=1)
-
-                    pdf.ln(12)
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.set_text_color(15, 23, 42)
-                    pdf.cell(0, 6, txt=f"Erfasste Werte vom {training_date.strftime('%d.%m.%Y')}".encode("latin-1", "replace").decode("latin-1"), ln=True)
-                    pdf.ln(2)
-
-                    pdf.set_fill_color(30, 41, 59)
-                    pdf.set_text_color(255, 255, 255)
-                    pdf.set_font("Arial", "B", 9)
-                    pdf.cell(110, 7, " Parameter / Übung", 1, 0, "L", True)
-                    pdf.cell(80, 7, " Erfasster Wert ", 1, 1, "R", True)
-
-                    pdf.set_font("Arial", "", 9)
-                    pdf.set_text_color(30, 41, 59)
-                    fill_toggle = False
-
-                    all_pdf_data = {
-                        "Körpergewicht (kg)": koerpergewicht,
-                        "Schmerzen / Beschwerden": schmerzen,
-                    }
-                    all_pdf_data.update(details)
-
-                    for key, val in all_pdf_data.items():
-                        clean_key = (
-                            key.replace("_", " ")
-                            .replace("Drueckende Uebung", "Gewählte Drückende Übung")
-                            .replace("Ziehende Uebung", "Gewählte Ziehende Übung")
-                            .replace("Uebung", "Übung")
-                        )
-                        pdf.set_fill_color(248, 250, 252) if fill_toggle else pdf.set_fill_color(255, 255, 255)
-                        pdf.cell(110, 6.5, txt=f"  {clean_key}".encode("latin-1", "replace").decode("latin-1"), border=1, ln=0, align="L", fill=True)
-                        pdf.cell(80, 6.5, txt=f"{str(val)}   ".encode("latin-1", "replace").decode("latin-1"), border=1, ln=1, align="R", fill=True)
-                        fill_toggle = not fill_toggle
-
-                    if os.path.exists(chart_weight_path):
-                        pdf.ln(4)
-                        pdf.image(chart_weight_path, x=15, w=180)
-
-                    if os.path.exists(chart_area_path):
-                        pdf.ln(2)
-                        pdf.image(chart_area_path, x=15, w=180)
-
-                    pdf.ln(4)
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 6, txt="Trainer-Feedback & Notizen", ln=True)
-                    pdf.ln(2)
-
-                    pdf.set_font("Arial", "", 9)
-                    pdf.set_fill_color(248, 250, 252)
-                    pdf.set_draw_color(226, 232, 240)
-
-                    notes_text = trainer_notes if trainer_notes else "Keine zusätzlichen Notizen erfasst."
-                    pdf.multi_cell(190, 6.5, txt=f" {notes_text}".encode("latin-1", "replace").decode("latin-1"), border=1, fill=True, align="L")
-                    pdf.output(pdf_filename)
-
-                    if os.path.exists(chart_weight_path): os.remove(chart_weight_path)
-                    if os.path.exists(chart_area_path): os.remove(chart_area_path)
-
-                    # E-MAIL VERSAND INKLUSIVE INLINE-LOGO & PREHEADER
-                    email_secrets = st.secrets.get("email", {})
-                    SENDER_EMAIL = email_secrets.get("absender", "fit@hinkelfit.de")
-                    SENDER_PASSWORD = email_secrets.get("passwort", "")
-                    SMTP_SERVER = email_secrets.get("smtp_server", "smtp.strato.de") 
-                    SMTP_PORT = int(email_secrets.get("smtp_port", 587))
-
-                    msg = MIMEMultipart("mixed")
-                    msg["From"] = SENDER_EMAIL
-                    msg["To"] = member_email
-                    msg["Subject"] = "Deine monatliche Erfolgsmessung bei Hinkelfit"
-
-                    msg_related = MIMEMultipart("related")
-                    msg.attach(msg_related)
-
-                    vorname = selected_member_name.split()[0] if selected_member_name else "liebes Mitglied"
-                    
-                    body_html = f"""
-                    <html>
-                    <body style="font-family: Arial, sans-serif; color: #333;">
-                        <!-- UNSICHTBARER PREHEADER FÜR DIE POSTEINGANGS-VORSCHAU -->
-                        <div style="display:none;font-size:1px;color:#333333;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
-                            Deine aktuelle Erfolgsmessung ist da! Sieh dir deine Fortschritte an.
-                        </div>
-                        <p>Hallo {vorname},</p>
-                        <p>anbei erhältst du die Dokumentation deiner monatlichen Erfolgsmessung vom {training_date.strftime('%d.%m.%Y')} als PDF-Auswertung inklusive deiner Verlaufskurven.</p>
-                        <br>
-                        <p>Sportliche Grüße<br>Harald</p>
-                        <br>
-                        <img src="cid:logo" alt="Hinkelfit Logo" style="width: 250px;">
-                    </body>
-                    </html>
-                    """
-                    msg_related.attach(MIMEText(body_html, "html", "utf-8"))
-
-                    # Bild einbetten mit Umbenennung
-                    logo_path = os.path.join(BASE_DIR, "Logo heller Hintergrund.jpg")
-                    if os.path.exists(logo_path):
-                        with open(logo_path, "rb") as img_file:
-                            logo_part = MIMEImage(img_file.read())
-                            logo_part.add_header('Content-ID', '<logo>')
-                            logo_part.add_header('Content-Disposition', 'inline', filename="logo.jpg")
-                            msg_related.attach(logo_part)
-
-                    with open(pdf_filename, "rb") as f:
-                        attach = MIMEApplication(f.read(), Name=os.path.basename(pdf_filename))
-                        attach["Content-Disposition"] = f'attachment; filename="{os.path.basename(pdf_filename)}"'
-                        msg.attach(attach)
-
-                    server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-                    server.starttls()
-                    server.login(SENDER_EMAIL, SENDER_PASSWORD)
-                    server.send_message(msg)
-                    server.quit()
-                    
-                    st.success(f"Die Auswertung wurde als PDF erfolgreich an {member_email} gesendet!")
-                except Exception as e:
-                    st.warning(f"Fehler beim E-Mail-Versand: {e}")
-
-    # --- ANZEIGE DER HISTORIE AM ENDE DER SEITE ---
-    try:
-        df_history_show_all = conn.read(spreadsheet=SHEET_URL, worksheet="Historie", ttl=0)
-        df_history_show_all = df_history_show_all.dropna(how="all")
-        
-        # Nur Historie für ausgewähltes Mitglied anzeigen
-        if not df_history_show_all.empty and "Name" in df_history_show_all.columns:
-            df_history_show = df_history_show_all[df_history_show_all["Name"] == selected_member_name].copy()
+    if st.button("💾 Vorlage dauerhaft in Cloud speichern"):
+        if not new_template_name.strip():
+            st.error("Bitte gib einen Namen für die Vorlage an.")
         else:
-            df_history_show = pd.DataFrame()
+            t_rows = []
+            for _, r in edited_template_df.iterrows():
+                if str(r["Uebung"]).strip():
+                    t_rows.append({
+                        "Template_Name": new_template_name.strip(),
+                        "Block": str(r["Block"]),
+                        "Modus": str(r["Modus"]),
+                        "Uebung": str(r["Uebung"]),
+                        "Sätze/Runden": str(r["Sätze/Runden"]),
+                        "Wiederholungen/Distanz": str(r["Wiederholungen/Distanz"]),
+                        "Gewicht": str(r["Gewicht"]),
+                        "Pause_Belastung": str(r["Pause_Belastung"])
+                    })
+            df_new_t = pd.DataFrame(t_rows)
+            
+            try:
+                df_all_t = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
+                df_all_t = df_all_t.dropna(how="all")
+            except Exception:
+                df_all_t = pd.DataFrame()
+                
+            if not df_all_t.empty and "Template_Name" in df_all_t.columns:
+                df_all_t = df_all_t[df_all_t["Template_Name"] != new_template_name.strip()]
+                df_all_t = pd.concat([df_all_t, df_new_t], ignore_index=True)
+            else:
+                df_all_t = df_new_t
+                
+            conn.update(spreadsheet=SHEET_URL, worksheet="Vorlagen", data=df_all_t)
+            st.cache_data.clear()
+            st.success(f"Vorlage '{new_template_name}' erfolgreich in der Cloud gespeichert!")
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("Vorhandene Vorlagen löschen")
+    try:
+        df_existing_t = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
+        df_existing_t = df_existing_t.dropna(how="all")
     except Exception:
-        df_history_show = pd.DataFrame()
+        df_existing_t = pd.DataFrame()
 
-    if not df_history_show.empty:
-        st.markdown("---")
-        st.markdown("### Bisherige Historie & Verlauf")
-        
-        # Den Namen in der Tabelle verstecken, da wir ja eh schon wissen, wessen Profil es ist
-        st.dataframe(df_history_show.drop(columns=["Name"], errors="ignore"), use_container_width=True)
-
-        st.markdown("### Leistungs- und Gewichts-Visualisierung")
-        df_filtered_chart = df_history_show.copy()
-
-        if not df_filtered_chart.empty and "Datum" in df_filtered_chart.columns:
-            df_filtered_chart["Datum"] = pd.to_datetime(df_filtered_chart["Datum"])
-            df_filtered_chart = df_filtered_chart.sort_values("Datum")
-
-            if "Koerpergewicht" in df_filtered_chart.columns and df_filtered_chart["Koerpergewicht"].sum() > 0:
-                st.markdown("#### Körpergewicht-Verlauf")
-                chart_kg = alt.Chart(df_filtered_chart).mark_line(point=True, strokeWidth=3).encode(
-                    x=alt.X('Datum:T', title='Kalendertag', axis=alt.Axis(format='%d.%m.%Y')),
-                    y=alt.Y('Koerpergewicht:Q', title='Gewicht (kg)', scale=alt.Scale(zero=False)),
-                    tooltip=['Datum:T', 'Koerpergewicht:Q']
-                ).interactive()
-                st.altair_chart(chart_kg, use_container_width=True)
-
-            df_area_chart = df_filtered_chart[df_filtered_chart["Bereich"] == exercise_type]
-            if not df_area_chart.empty:
-                st.markdown(f"#### Verlauf für Schwerpunkt: {exercise_type}")
-                
-                cols_to_plot = []
-                if exercise_type == "Krafttraining":
-                    cols_to_plot = [c for c in ["Gewicht_Drueckende_Uebung", "Gewicht_Chinesische_Ruderbank", "Gewicht_Kniebeuge", "Gewicht_Kreuzheben"] if c in df_area_chart.columns]
-                elif exercise_type == "Funktionelles Training":
-                    cols_to_plot = [c for c in ["Sandsack_Gewicht", "KB_Wdh", "SS_Wdh"] if c in df_area_chart.columns]
-                elif exercise_type == "Kondition":
-                    cols_to_plot = [c for c in ["Tragen_Gewicht"] if c in df_area_chart.columns]
-                
-                if cols_to_plot:
-                    df_melted = df_area_chart.melt(id_vars=["Datum"], value_vars=cols_to_plot, var_name="Übung", value_name="Wert")
-                    
-                    chart_area = alt.Chart(df_melted).mark_line(point=True, strokeWidth=3).encode(
-                        x=alt.X('Datum:T', title='Kalendertag', axis=alt.Axis(format='%d.%m.%Y')),
-                        y=alt.Y('Wert:Q', title='Gewicht', scale=alt.Scale(zero=False)),
-                        color=alt.Color('Übung:N', legend=alt.Legend(title="Parameter")),
-                        tooltip=['Datum:T', 'Übung:N', 'Wert:Q']
-                    ).interactive()
-                    st.altair_chart(chart_area, use_container_width=True)
+    if not df_existing_t.empty and "Template_Name" in df_existing_t.columns:
+        existing_t_names = df_existing_t["Template_Name"].unique().tolist()
+        del_template_choice = st.selectbox("Vorlage zum Löschen wählen:", existing_t_names)
+        if st.button("🗑️ Ausgewählte Vorlage löschen"):
+            df_existing_t = df_existing_t[df_existing_t["Template_Name"] != del_template_choice]
+            conn.update(spreadsheet=SHEET_URL, worksheet="Vorlagen", data=df_existing_t)
+            st.cache_data.clear()
+            st.success(f"Vorlage '{del_template_choice}' gelöscht.")
+            st.rerun()
     else:
-        st.info("Noch keine Daten für Charts vorhanden.")
-else:
-    st.warning("Die zentrale Mitglieder-Datenbank konnte in Google Sheets nicht geladen werden oder ist leer.")
+        st.info("Keine gespeicherten Vorlagen in der Cloud vorhanden.")
+
+
+# ================= TAB 3: DIAGRAMM & VERLAUF =================
+with tab3:
+    st.subheader("📈 Kraft- & Leistungsverlauf")
+    
+    if df_hist_check.empty:
+        st.info("Noch keine Trainingshistorie für dieses Mitglied vorhanden.")
+    else:
+        available_exercises = df_hist_check["Uebung"].dropna().unique().tolist()
+        selected_exercise = st.selectbox("Kernübung für das Verlaufskurven-Diagramm wählen:", available_exercises)
+        
+        df_exercise = df_hist_check[df_hist_check["Uebung"] == selected_exercise].copy()
+        
+        df_exercise["Gewicht_Num"] = (
+            df_exercise["Gewicht"]
+            .astype(str)
+            .str.extract(r'([\d\.,]+)')[0]
+            .str.replace(',', '.')
+            .astype(float)
+        )
+        
+        df_exercise["Datum"] = pd.to_datetime(df_exercise["Datum"])
+        df_exercise = df_exercise.sort_values("Datum")
+        
+        if not df_exercise.empty and df_exercise["Gewicht_Num"].notna().any():
+            st.write(f"Verlauf für **{selected_exercise}** (Gewicht/Wert):")
+            chart_data = df_exercise.set_index("Datum")["Gewicht_Num"]
+            st.line_chart(chart_data)
+            
+            with st.expander("Tabellarische Historie für diese Übung"):
+                cols_hist = [c for c in ["Datum", "Block", "Modus", "Uebung", "Sätze/Runden", "Wiederholungen/Distanz", "Gewicht", "Pause_Belastung", "Notizen"] if c in df_exercise.columns]
+                st.dataframe(df_exercise[cols_hist], use_container_width=True, hide_index=True)
+        else:
+            st.warning(f"Für '{selected_exercise}' konnten keine numerischen Gewichtsdaten für ein Diagramm extrahiert werden.")
+
+
+# ================= TAB 4: PDF EXPORT =================
+with tab4:
+    st.subheader("📄 Trainingsplan als PDF exportieren")
+    
+    pdf_date = st.date_input("Datum für PDF-Ausdruck:", value=datetime.today(), key="pdf_date_input")
+    
+    if st.button("🖨️ PDF-Plan generieren"):
+        pdf_filename = f"Trainingsplan_{sel_id}_{pdf_date.strftime('%Y-%m-%d')}.pdf"
+        pdf_path = os.path.join(member_folder, pdf_filename)
+        
+        doc = SimpleDocTemplate(pdf_path, pagesize=A4, rightMargin=25, leftMargin=25, topMargin=30, bottomMargin=30)
+        styles = getSampleStyleSheet()
+        
+        title_style = ParagraphStyle(
+            'TitleStyle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, textColor=colors.HexColor('#1f2937'), spaceAfter=4
+        )
+        subtitle_style = ParagraphStyle(
+            'SubTitleStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10, textColor=colors.HexColor('#4b5563'), spaceAfter=12
+        )
+        
+        elements = [
+            Paragraph("HINKELFIT – TRAININGSDOKUMENTATION", title_style),
+            Paragraph(f"Mitglied: <b>{sel_name}</b> (ID: {sel_id}) | Stand: {pdf_date.strftime('%d.%m.%Y')}", subtitle_style),
+            Spacer(1, 10)
+        ]
+        
+        if not df_hist_check.empty:
+            df_pdf_data = df_hist_check[df_hist_check["Datum"] == pdf_date.strftime("%Y-%m-%d")]
+        else:
+            df_pdf_data = pd.DataFrame()
+            
+        if df_pdf_data.empty:
+            st.warning("Keine Einträge für dieses Datum gefunden. Nutze im ersten Tab den Editor und speichere die Werte ab.")
+        else:
+            table_data = [["Block", "Modus", "Übung", "Runden", "Wd./Dist.", "Gewicht", "Pause"]]
+            for _, r in df_pdf_data.iterrows():
+                table_data.append([
+                    str(r.get("Block", "")),
+                    str(r.get("Modus", "")),
+                    str(r.get("Uebung", "")),
+                    str(r.get("Sätze/Runden", "")),
+                    str(r.get("Wiederholungen/Distanz", "")),
+                    str(r.get("Gewicht", "")),
+                    str(r.get("Pause_Belastung", ""))
+                ])
+                
+            t = Table(table_data, colWidths=[70, 80, 100, 50, 65, 75, 65])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#374151')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0,0), (-1,0), 9),
+                ('BOTTOMPADDING', (0,0), (-1,0), 6),
+                ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#f9fafb')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d1d5db')),
+                ('FONTNAME', (0,1), (-1,-1), 'Helvetica'),
+                ('FONTSIZE', (0,1), (-1,-1), 8.5),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('TOPPADDING', (0,1), (-1,-1), 5),
+                ('BOTTOMPADDING', (0,1), (-1,-1), 5),
+            ]))
+            
+            elements.append(t)
+            doc.build(elements)
+            
+            st.success(f"PDF erfolgreich erstellt unter:\n`{pdf_path}`")
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    label="📥 PDF herunterladen",
+                    data=f,
+                    file_name=pdf_filename,
+                    mime="application/pdf"
+                )
