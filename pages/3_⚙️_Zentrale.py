@@ -595,9 +595,11 @@ with tab2:
             with col_b2:
                 if st.button(f"✉️ Geschenk-E-Mail senden", key=f"mail_{bkid['Name']}"):
                     name = bkid['Name'].split()[0] if bkid['Name'] else "liebes Mitglied"
-                    body = "<p>ich wünsche dir alles erdenklich Gute zum Geburtstag! Bleib gesund, stark und weiterhin so motiviert.</p><p>Als kleines Geschenk möchte ich dir 15% Nachlass auf deinen nächsten Kauf eines Kleingruppen-Personal-Trainings geben!</p><p>Melde dich einfach beim nächsten Mal bei mir im Studio, um den Rabatt einzulösen.</p>"
+                    body = "<p>ich wünsche dir alles erdenklich Gute zum Geburtstag! Bleib gesund, stark und weiterhin so motiviert.</p><p>Als kleines Geschenk möchte ich dir 15% Rabatt auf das nächste Kleingruppen-Personal-Training-Paket geben!</p><p>Melde dich einfach beim nächsten Mal bei mir im Studio, um den Rabatt einzulösen.</p>"
                     if send_hinkelfit_email(bkid["Email"], name, "Herzlichen Glückwunsch zum Geburtstag! 🎉", body):
-                        st.success("E-Mail gesendet!")
+                        st.success("✅ E-Mail erfolgreich gesendet!")
+                    else:
+                        st.error("❌ E-Mail konnte nicht gesendet werden. Bitte prüfe die E-Mail-Adresse.")
                         
     st.subheader("Vorschau: Nächste 30 Tage (Aktive Mitglieder)")
     if upcoming_bdays: 
