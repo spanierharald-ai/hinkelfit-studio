@@ -1,4 +1,6 @@
+import base64
 import datetime
+import io
 import os
 import pandas as pd
 import streamlit as st
@@ -8,10 +10,12 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 from email.mime.application import MIMEApplication
 from streamlit_gsheets import GSheetsConnection
+from streamlit_drawable_canvas import st_canvas
+from PIL import Image
 
 # ReportLab für PDF-Generierung
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -82,8 +86,8 @@ def send_hinkelfit_email_with_pdf(to_email, to_name, subject, body_content_html,
         print(f"E-Mail-Fehler: {e}")
         return False
 
-# --- PDF GENERIERUNG IM BESTEHENDEN MITGLIEDER-ORDNER ---
-def generate_tariff_pdf(member_data, old_tariff, new_tariff, effective_date, signature):
+# --- PDF GENERIERUNG IM BESTEHENDEN MITGLIEDER-ORDNER MIT BILD-UNTERSCHRIFT ---
+def generate_tariff_pdf(member_data, old_tariff, new_tariff, effective_date, sig_image_path):
     if not os.path.exists(MEMBERS_DIR):
         os.makedirs(MEMBERS_DIR)
         
@@ -156,8 +160,12 @@ def generate_tariff_pdf(member_data, old_tariff, new_tariff, effective_date, sig
     story.append(t)
     story.append(Spacer(1, 15))
     story.append(Paragraph("Es gelten weiterhin die allgemeinen Geschäftsbedingungen und Vertragskonditionen der Hinkelfit-Mitgliedschaft.", normal_style))
-    story.append(Spacer(1, 20))
-    story.append(Paragraph(f"<b>Digitale Unterschrift (Bestätigung):</b><br/><i>{signature}</i><br/>Erfasst am {datetime.date.today().strftime('%d.%m.%Y')}", normal_style))
+    story.append(Spacer(1, 15))
+    
+    story.append(Paragraph(f"<b>Digitale Unterschrift:</b><br/>Erfasst am {datetime.date.today().strftime('%d.%m.%Y')}", normal_style))
+    
+    if sig_image_path and os.path.exists(sig_image_path):
+        story.append(RLImage(sig_image_path, width=250, height=70))
     
     doc.build(story)
     return pdf_path
@@ -240,67 +248,86 @@ if selected_member_str:
     # -------------------------------------------------------------------------
     with tab1:
         st.subheader("Tarifwechsel durchführen & Digitale Unterschrift")
-        st.write("Wähle den neuen Tarif aus und lasse den Kunden zur Bestätigung seinen Namen eintippen.")
+        st.write("Wähle den neuen Tarif aus und unterschreibe im Feld zur Bestätigung.")
         
-        with st.form("tariff_form"):
-            current_tariff = row['Tarif']
-            
-            # Echte Tarife von Hinkelfit
-            available_tariffs = [
-                "Kurse 2x wöchentlich, 59€ pro Monat",
-                "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat",
-                "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
-            ]
-            
-            default_index = available_tariffs.index(current_tariff) if current_tariff in available_tariffs else 0
-            
-            new_tariff = st.selectbox("Neuer Tarif:", available_tariffs, index=default_index)
-            effective_date_input = st.date_input("Gültig ab Datum:", value=datetime.date.today())
-            tariff_note = st.text_input("Grund / Notiz zum Tarifwechsel (optional):", value="")
-            
-            st.markdown("---")
-            customer_signature = st.text_input("Digitale Unterschrift (Bitte Vor- und Nachname zur Bestätigung eintippen):")
-            
-            submit_tariff = st.form_submit_button("💾 Tarifänderung in Cloud bestätigen, PDF generieren & senden")
-            
-            if submit_tariff:
-                if not customer_signature.strip():
-                    st.error("Bitte gib die digitale Unterschrift (Vor- und Nachname) ein, um den Tarifwechsel abzuschließen.")
-                else:
-                    effective_str = effective_date_input.strftime("%d.%m.%Y")
-                    
-                    # 1. PDF generieren im korrekten Ordner (lokal für E-Mail Versand)
-                    pdf_path = generate_tariff_pdf(row, current_tariff, new_tariff, effective_str, customer_signature.strip())
-                    
-                    # 2. In Cloud-Datenbank aktualisieren
-                    df_members.at[m_idx, "Tarif"] = new_tariff
-                    timestamp_str = datetime.date.today().strftime("%d.%m.%Y")
-                    current_notes = str(df_members.at[m_idx, "Notizen"]) if pd.notna(df_members.at[m_idx, "Notizen"]) and str(df_members.at[m_idx, "Notizen"]).strip() != 'nan' else ""
-                    new_note = f"[{timestamp_str}] Tarifwechsel von '{current_tariff}' zu '{new_tariff}' (Gültig ab {effective_str}). Unterschrieben von: {customer_signature.strip()}. {tariff_note}".strip()
-                    df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
-                    
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                    st.cache_data.clear()
-                    
-                    # 3. E-Mail mit PDF versenden
-                    email = row.get("E-Mail", "")
-                    first_name = row.get("Vorname", "Mitglied")
-                    
-                    if pd.notna(email) and "@" in str(email):
-                        subject = f"Bestätigung deiner Tarifänderung bei Hinkelfit"
-                        body = f"""
-                        <p>wir haben deinen Wunsch nach einem Tarifwechsel entgegengenommen und im System hinterlegt.</p>
-                        <p>Im Anhang findest du die offizielle Bestätigung deiner Tarifänderung auf <strong>{new_tariff}</strong> (gültig ab dem {effective_str}), versehen mit deiner digitalen Unterschrift.</p>
-                        <p>Vielen Dank und sportliche Grüße!</p>
-                        """
-                        if send_hinkelfit_email_with_pdf(email, first_name, subject, body, pdf_path):
-                            st.success(f"Tarifänderung erfolgreich in der Cloud gespeichert, PDF im Ordner abgelegt und per E-Mail an {row['Name']} gesendet!")
-                        else:
-                            st.warning("Tarif wurde geändert und PDF im Ordner gespeichert, aber beim E-Mail-Versand gab es ein Problem.")
+        current_tariff = row['Tarif']
+        
+        available_tariffs = [
+            "Kurse 2x wöchentlich, 59€ pro Monat",
+            "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat",
+            "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
+        ]
+        
+        default_index = available_tariffs.index(current_tariff) if current_tariff in available_tariffs else 0
+        
+        new_tariff = st.selectbox("Neuer Tarif:", available_tariffs, index=default_index, key="tf_new_tariff")
+        effective_date_input = st.date_input("Gültig ab Datum:", value=datetime.date.today(), key="tf_eff_date")
+        tariff_note = st.text_input("Grund / Notiz zum Tarifwechsel (optional):", value="", key="tf_note")
+        
+        st.markdown("---")
+        st.write("🖋️ **Digitale Unterschrift des Mitglieds:**")
+        canvas_result = st_canvas(
+            fill_color="#fff", 
+            stroke_width=3, 
+            stroke_color="#000", 
+            background_color="#eee", 
+            height=150, 
+            width=600, 
+            drawing_mode="freedraw", 
+            key="tariff_canvas"
+        )
+        
+        if st.button("💾 Tarifänderung in Cloud bestätigen, PDF generieren & senden", key="btn_submit_tariff"):
+            if canvas_result.image_data is None:
+                st.error("⚠️ Bitte unterschreibe im Feld, um den Tarifwechsel abzuschließen.")
+            else:
+                effective_str = effective_date_input.strftime("%d.%m.%Y")
+                
+                # Unterschrift als temporäres Bild speichern
+                sig_img = Image.fromarray(canvas_result.image_data.astype("uint8"), "RGBA")
+                sig_buffered = io.BytesIO()
+                sig_img.save(sig_buffered, format="PNG")
+                
+                temp_sig_path = "temp_signature.png"
+                with open(temp_sig_path, "wb") as f:
+                    f.write(sig_buffered.getvalue())
+                
+                # 1. PDF generieren mit Bild-Unterschrift
+                pdf_path = generate_tariff_pdf(row, current_tariff, new_tariff, effective_str, temp_sig_path)
+                
+                # Aufräumen
+                if os.path.exists(temp_sig_path):
+                    os.remove(temp_sig_path)
+                
+                # 2. In Cloud-Datenbank aktualisieren
+                df_members.at[m_idx, "Tarif"] = new_tariff
+                timestamp_str = datetime.date.today().strftime("%d.%m.%Y")
+                current_notes = str(df_members.at[m_idx, "Notizen"]) if pd.notna(df_members.at[m_idx, "Notizen"]) and str(df_members.at[m_idx, "Notizen"]).strip() != 'nan' else ""
+                new_note = f"[{timestamp_str}] Tarifwechsel von '{current_tariff}' zu '{new_tariff}' (Gültig ab {effective_str}). Digital unterschrieben. {tariff_note}".strip()
+                df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
+                
+                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
+                st.cache_data.clear()
+                
+                # 3. E-Mail mit PDF versenden
+                email = row.get("E-Mail", "")
+                first_name = row.get("Vorname", "Mitglied")
+                
+                if pd.notna(email) and "@" in str(email):
+                    subject = f"Bestätigung deiner Tarifänderung bei Hinkelfit"
+                    body = f"""
+                    <p>wir haben deinen Wunsch nach einem Tarifwechsel entgegengenommen und im System hinterlegt.</p>
+                    <p>Im Anhang findest du die offizielle Bestätigung deiner Tarifänderung auf <strong>{new_tariff}</strong> (gültig ab dem {effective_str}), versehen mit deiner digitalen Unterschrift.</p>
+                    <p>Vielen Dank und sportliche Grüße!</p>
+                    """
+                    if send_hinkelfit_email_with_pdf(email, first_name, subject, body, pdf_path):
+                        st.success(f"Tarifänderung erfolgreich in der Cloud gespeichert, PDF im Ordner abgelegt und per E-Mail an {row['Name']} gesendet!")
                     else:
-                        st.success(f"Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
-                    
-                    st.rerun()
+                        st.warning("Tarif wurde geändert und PDF im Ordner gespeichert, aber beim E-Mail-Versand gab es ein Problem.")
+                else:
+                    st.success(f"Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
+                
+                st.rerun()
                 
     # -------------------------------------------------------------------------
     # TAB 2: PAUSIEREN / REAKTIVIEREN
@@ -337,7 +364,7 @@ if selected_member_str:
                     st.success(f"Mitgliedschaft für {row['Name']} wurde bis zum {pause_end.strftime('%d.%m.%Y')} pausiert!")
                     st.rerun()
         else:
-            st.success(f"⚠️ Diese Mitgliedschaft ist aktuell **pausiert** (bis voraussichtlich {row.get('Pausiert_Bis', 'unbekannt')}).")
+            st.success(f"⚠️ Diese Mitgliedschaft is aktuell **pausiert** (bis voraussichtlich {row.get('Pausiert_Bis', 'unbekannt')}).")
             
             if st.button("▶️ Mitgliedschaft jetzt reaktivieren (Status in Cloud auf 'Aktiv' setzen)"):
                 df_members.at[m_idx, "Status"] = "Aktiv"
