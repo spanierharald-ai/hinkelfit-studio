@@ -48,7 +48,7 @@ def send_hinkelfit_email_with_pdf(to_email, to_name, subject, body_content_html,
             <p>Hallo {to_name},</p>
             {body_content_html}
             <br>
-            <p>Sportliche Grüße<br>Harald</p>
+            <p>Sportliche Grüße<br>Harald<br><b>Hinkelfit</b></p>
             <br>
             <img src="cid:logo" alt="Hinkelfit Logo" style="width: 250px;">
         </body>
@@ -132,7 +132,7 @@ def generate_tariff_pdf(member_data, old_tariff, new_tariff, effective_date, sig
     story.append(Paragraph(f"<b>Mitgliedsdaten:</b><br/>"
                            f"Name: {member_data['Name']}<br/>"
                            f"Mitglieder-ID: {member_data['Mitglieder_ID']}<br/>"
-                           f"Anschrift: {member_data['Anschrift']}", normal_style))
+                           f"Anschrift: {member_data.get('Adresse', '-')}", normal_style))
     story.append(Spacer(1, 10))
     
     story.append(Paragraph("Hiermit wird die Änderung der Mitgliedschaft bei Hinkelfit wie folgt bestätigt:", normal_style))
@@ -169,28 +169,34 @@ st.title("🔄 Vertragsänderungen, Tarifwechsel & Pausierung")
 try:
     df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
     df_members = df_members.dropna(how="all")
-except Exception:
+except Exception as e:
+    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     df_members = pd.DataFrame()
-
-needs_update = False
-if not df_members.empty:
-    if "Status" not in df_members.columns:
-        df_members["Status"] = "Aktiv"
-        needs_update = True
-    if "Pausiert_Bis" not in df_members.columns:
-        df_members["Pausiert_Bis"] = "-"
-        needs_update = True
-    if "Notizen" not in df_members.columns:
-        df_members["Notizen"] = ""
-        needs_update = True
-        
-    if needs_update:
-        conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
-        st.cache_data.clear()
 
 if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden.")
     st.stop()
+
+# --- SAUBERE LÖSUNG: Hilfsspalte "Name" anlegen ---
+if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+    df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
+else:
+    df_members["Name"] = "Unbekannt"
+
+needs_update = False
+if "Status" not in df_members.columns:
+    df_members["Status"] = "Aktiv"
+    needs_update = True
+if "Pausiert_Bis" not in df_members.columns:
+    df_members["Pausiert_Bis"] = "-"
+    needs_update = True
+if "Notizen" not in df_members.columns:
+    df_members["Notizen"] = ""
+    needs_update = True
+    
+if needs_update:
+    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
+    st.cache_data.clear()
 
 
 # --- MITGLIED AUSWÄHLEN ---
@@ -215,7 +221,7 @@ if selected_member_str:
         st.write(f"**Aktueller Tarif:** {row['Tarif']}")
         st.write(f"**Aktueller Status:** {row['Status']}")
     with col_info3:
-        st.write(f"**Beitrittsdatum:** {row['Beitrittsdatum']}")
+        st.write(f"**Beitrittsdatum:** {row.get('Datum', '-')}")
         pausiert_info = row.get("Pausiert_Bis", "-")
         st.write(f"**Pausiert bis:** {pausiert_info if pd.notna(pausiert_info) and str(pausiert_info).strip() != 'nan' else '-'}")
         
@@ -235,9 +241,9 @@ if selected_member_str:
             
             # Echte Tarife von Hinkelfit
             available_tariffs = [
-                "Kurse 2x wöchentlich (59€)",
-                "1x wöchentlich Kleingruppen-Personal-Training (99€)",
-                "2x wöchentlich Kleingruppen-Personaltraining (179€)"
+                "Kurse 2x wöchentlich, 59€ pro Monat",
+                "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat",
+                "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
             ]
             
             default_index = available_tariffs.index(current_tariff) if current_tariff in available_tariffs else 0
@@ -257,7 +263,7 @@ if selected_member_str:
                 else:
                     effective_str = effective_date_input.strftime("%d.%m.%Y")
                     
-                    # 1. PDF generieren im korrekten 'mitglieder'-Ordner (lokal für E-Mail Versand)
+                    # 1. PDF generieren im korrekten Ordner (lokal für E-Mail Versand)
                     pdf_path = generate_tariff_pdf(row, current_tariff, new_tariff, effective_str, customer_signature.strip())
                     
                     # 2. In Cloud-Datenbank aktualisieren
@@ -267,12 +273,12 @@ if selected_member_str:
                     new_note = f"[{timestamp_str}] Tarifwechsel von '{current_tariff}' zu '{new_tariff}' (Gültig ab {effective_str}). Unterschrieben von: {customer_signature.strip()}. {tariff_note}".strip()
                     df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
                     
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                     st.cache_data.clear()
                     
                     # 3. E-Mail mit PDF versenden
-                    email = row.get("Email", "")
-                    first_name = row.get("Name", "").split()[0]
+                    email = row.get("E-Mail", "")
+                    first_name = row.get("Vorname", "Mitglied")
                     
                     if pd.notna(email) and "@" in str(email):
                         subject = f"Bestätigung deiner Tarifänderung bei Hinkelfit"
@@ -282,11 +288,11 @@ if selected_member_str:
                         <p>Vielen Dank und sportliche Grüße!</p>
                         """
                         if send_hinkelfit_email_with_pdf(email, first_name, subject, body, pdf_path):
-                            st.success(f"Tarifänderung erfolgreich in der Cloud gespeichert, PDF im Mitglieder-Ordner abgelegt und per E-Mail an {row['Name']} gesendet!")
+                            st.success(f"Tarifänderung erfolgreich in der Cloud gespeichert, PDF im Ordner abgelegt und per E-Mail an {row['Name']} gesendet!")
                         else:
                             st.warning("Tarif wurde geändert und PDF im Ordner gespeichert, aber beim E-Mail-Versand gab es ein Problem.")
                     else:
-                        st.success(f"Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Mitglieder-Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
+                        st.success(f"Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
                     
                     st.rerun()
                 
@@ -319,7 +325,7 @@ if selected_member_str:
                     new_note = f"[{timestamp_str}] Pausiert von {pause_start} bis {pause_end}. Grund: {pause_reason}".strip()
                     df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
                     
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                     st.cache_data.clear()
                     
                     st.success(f"Mitgliedschaft für {row['Name']} wurde bis zum {pause_end.strftime('%d.%m.%Y')} pausiert!")
@@ -336,7 +342,7 @@ if selected_member_str:
                 new_note = f"[{timestamp_str}] Reaktiviert und Status auf 'Aktiv' gesetzt."
                 df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
                 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 
                 st.success(f"Mitgliedschaft für {row['Name']} wurde erfolgreich reaktiviert!")
