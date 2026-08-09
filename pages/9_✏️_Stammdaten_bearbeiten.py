@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Stammdaten-Editor", page_icon="✏️", layout="wide")
@@ -8,16 +8,21 @@ st.set_page_config(page_title="Hinkelfit Stammdaten-Editor", page_icon="✏️",
 st.title("✏️ Mitglieder-Stammdaten bearbeiten")
 st.write("Hier kannst du Kontaktdaten, Tarife und Status bestehender Mitglieder anpassen.")
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # --- DATENBANK AUS DER CLOUD LADEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception as e:
-    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.error("⚠️ Die Verbindung zur Supabase-Datenbank wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     st.stop()
 
 if df_members.empty:
@@ -25,8 +30,6 @@ if df_members.empty:
     st.stop()
 
 # --- TYP-KONFLIKTE VERHINDERN ---
-# Zwingt Pandas dazu, diese Spalten als flexiblen Text (object) zu behandeln.
-# Verhindert Abstürze, wenn leere Spalten fälschlicherweise als Zahlen-Spalten erkannt wurden.
 text_columns = ['Vorname', 'Nachname', 'E-Mail', 'Adresse', 'Tarif', 'Status', 'Notizen']
 for col in text_columns:
     if col in df_members.columns:
@@ -38,20 +41,12 @@ if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
 else:
     df_members["Name"] = "Unbekannt"
 
-# Sicherstellen, dass Pflichtspalten existieren
-needs_update = False
+# Fallback für die App, falls die Spalten in der Supabase noch nicht angelegt sind
 if "Status" not in df_members.columns:
     df_members["Status"] = "Aktiv"
-    needs_update = True
 if "Notizen" not in df_members.columns:
     df_members["Notizen"] = ""
     df_members['Notizen'] = df_members['Notizen'].astype(object)
-    needs_update = True
-    
-if needs_update:
-    # Wir löschen die Hilfsspalte "Name" wieder, bevor wir in die Cloud speichern
-    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-    st.cache_data.clear()
 
 # --- MITGLIEDERSUCHE ---
 search_query = st.text_input("🔍 Mitglied suchen (Name oder ID eingeben):", value="")
@@ -116,17 +111,18 @@ if selected_member_str:
         submit_edit = st.form_submit_button("💾 Änderungen in die Cloud speichern")
         
         if submit_edit:
-            df_members.at[m_idx, 'Vorname'] = new_vorname
-            df_members.at[m_idx, 'Nachname'] = new_nachname
-            df_members.at[m_idx, 'E-Mail'] = new_email
-            df_members.at[m_idx, 'Adresse'] = new_adresse
-            df_members.at[m_idx, 'Tarif'] = new_tariff
-            df_members.at[m_idx, 'Status'] = new_status
-            df_members.at[m_idx, 'Notizen'] = new_notes
+            update_data = {
+                'Vorname': new_vorname,
+                'Nachname': new_nachname,
+                'E-Mail': new_email,
+                'Adresse': new_adresse,
+                'Tarif': new_tariff,
+                'Status': new_status,
+                'Notizen': new_notes
+            }
             
-            # Ohne die Hilfsspalte "Name" sauber in Google Sheets abspeichern
-            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-            st.cache_data.clear()
+            # Punktuelles Update in Supabase
+            supabase.table("Mitglieder").update(update_data).eq("Mitglieder_ID", sel_id).execute()
             
             st.success(f"Die Stammdaten für {new_vorname} {new_nachname} wurden erfolgreich aktualisiert!")
             st.rerun()
