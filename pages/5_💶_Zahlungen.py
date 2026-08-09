@@ -95,6 +95,12 @@ if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden. Bitte zuerst über die Anmeldung Mitglieder anlegen.")
     st.stop()
 
+# --- TYP-KONFLIKTE VERHINDERN (WICHTIG FÜR TEXTSPALTEN) ---
+text_columns = ['Mitglieder_ID', 'Vorname', 'Nachname', 'E-Mail', 'Adresse', 'Tarif', 'Status', 'Letzte_Zahlung', 'Letzte_Rechnung_Monat', 'Zahlungsstatus']
+for col in text_columns:
+    if col in df_members.columns:
+        df_members[col] = df_members[col].astype(object)
+
 # --- SAUBERE LÖSUNG: Hilfsspalte "Name" anlegen ---
 if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
     df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
@@ -130,9 +136,8 @@ st.title("💶 Zahlungen, LexOffice-Rechnungen & Mahnwesen")
 # -------------------------------------------------------------------------
 today = datetime.date.today()
 
-# Generiere eine Auswahlliste von Monaten (z.B. letzter Monat, aktueller Monat, nächste 3 Monate)
 months_options = []
-for i in range(-1, 4): # -1 = Vormonat, 0 = Aktueller Monat, 1 = Nächster Monat (Standard bei Voraus), etc.
+for i in range(-1, 4):
     y = today.year
     m = today.month + i
     while m > 12:
@@ -143,7 +148,6 @@ for i in range(-1, 4): # -1 = Vormonat, 0 = Aktueller Monat, 1 = Nächster Monat
         y -= 1
     months_options.append(f"{m:02d}.{y}")
 
-# Standardmäßig den NÄCHSTEN Monat auswählen (da im Voraus abgerechnet wird, z.B. im August für September)
 default_idx = 2 if len(months_options) > 2 else 0
 
 st.subheader("🧾 LexOffice Rechnungs-Check (Voraus-Abrechnung)")
@@ -155,7 +159,6 @@ with col_sel2:
 
 df_active_inv = df_members[df_members["Status"].isin(["Aktiv", "Gekündigt"])]
 
-# Prüfen, ob der ausgewählte Monat in der komma-getrennten Liste der erstellten Rechnungen des Mitglieds enthalten ist
 def has_invoice_for_month(val, target_month):
     if pd.isna(val) or not str(val).strip():
         return False
