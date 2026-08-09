@@ -172,22 +172,7 @@ elif st.session_state.step == 2:
                     conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=pd.concat([df, neues_mitglied], ignore_index=True))
 
                     # PDF generieren
-               # Variablen vorab definieren (verhindert Python 3.11 f-String Syntaxfehler)
-                telefon_str = st.session_state.telefon if st.session_state.telefon else "Keine Angabe"
-                geburtsdatum_str = st.session_state.geburtsdatum if st.session_state.geburtsdatum else "Keine Angabe"
-
-                img_base64 = ""
-                if st.session_state.get("signature") is not None:
-                    sig_img = Image.fromarray(
-                        st.session_state.signature.astype("uint8"), "RGBA"
-                    )
-                    buffered = io.BytesIO()
-                    sig_img.save(buffered, format="PNG")
-                    img_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-                sig_html = f'<img src="data:image/png;base64,{img_base64}" style="margin-top: 10px; border: 1px solid #ccc; width: 250px;">' if img_base64 else ""
-
-               # Variablen vorab definieren
+              # Variablen vorab definieren
                 telefon_str = st.session_state.telefon if st.session_state.telefon else "Keine Angabe"
                 geburtsdatum_str = st.session_state.geburtsdatum if st.session_state.geburtsdatum else "Keine Angabe"
                 heute_str = datetime.now().strftime('%d.%m.%Y')
@@ -203,43 +188,57 @@ elif st.session_state.step == 2:
 
                 sig_html = f'<img src="data:image/png;base64,{img_base64}" style="margin-top: 10px; border: 1px solid #ccc; width: 250px;">' if img_base64 else ""
 
-                # HTML-Struktur mittels sauberer Trennung von CSS und Variablen
-                css_style = """
-                <style>
-                    body { font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.5; font-size: 13px; margin: 30px; }
-                    h1 { color: #111; border-bottom: 2px solid #333; padding-bottom: 5px; font-size: 18px; }
-                    h3 { color: #444; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
-                    .field { margin-bottom: 6px; }
-                    .label { font-weight: bold; color: #222; }
-                    .box { background-color: #f9f9f9; border: 1px solid #ddd; padding: 12px; margin-top: 10px; }
-                </style>
+                # HTML-Struktur mit .format() – absolut fehlerfrei bei CSS-Klammern
+                html_template = """
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <style>
+                        body {{ font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.5; font-size: 13px; margin: 30px; }}
+                        h1 {{ color: #111; border-bottom: 2px solid #333; padding-bottom: 5px; font-size: 18px; }}
+                        h3 {{ color: #444; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }}
+                        .field {{ margin-bottom: 6px; }}
+                        .label {{ font-weight: bold; color: #222; }}
+                        .box {{ background-color: #f9f9f9; border: 1px solid #ddd; padding: 12px; margin-top: 10px; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Hinkelfit – Mitgliedschaftsvertrag</h1>
+                    <div class="field"><span class="label">Dienstleister:</span> Hinkelfit (Inh. Harald Spanier), Papiermühlweg 27, 89407 Wittislingen</div>
+                    <div class="field"><span class="label">Vertragsdatum:</span> {heute}</div>
+                    
+                    <h3>Mitgliedsdaten</h3>
+                    <div class="field"><span class="label">Name:</span> {vorname} {nachname}</div>
+                    <div class="field"><span class="label">Anschrift:</span> {adresse}</div>
+                    <div class="field"><span class="label">E-Mail:</span> {email}</div>
+                    <div class="field"><span class="label">Telefon:</span> {telefon}</div>
+                    <div class="field"><span class="label">Geburtsdatum:</span> {geburtsdatum}</div>
+                    
+                    <h3>Gewählter Tarif & Konditionen</h3>
+                    <div class="box">
+                        <strong>Tarif:</strong> {tarif}<br><br>
+                        • <strong>Zahlung & Rechnungsstellung:</strong> Die Vergütung ist nach Rechnungsstellung sofort per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.<br>
+                        • <strong>Terminabsage & Stornierung:</strong> Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.<br>
+                        • <strong>Kündigungsfrist:</strong> 2 Wochen zum Laufzeitende
+                    </div>
+                    
+                    <h3>Digitale Unterschrift</h3>
+                    <div class="field">Rechtsverbindlich digital unterschrieben von <strong>{vorname} {nachname}</strong> am {heute}</div>
+                    {sig_tag}
+                </body>
+                </html>
                 """
 
-                html_contract = (
-                    "<html><head><meta charset='utf-8'>" + css_style + "</head><body>"
-                    "<h1>Hinkelfit – Mitgliedschaftsvertrag</h1>"
-                    '<div class="field"><span class="label">Dienstleister:</span> Hinkelfit (Inh. Harald Spanier), Papiermühlweg 27, 89407 Wittislingen</div>'
-                    f'<div class="field"><span class="label">Vertragsdatum:</span> {heute_str}</div>'
-                    
-                    '<h3>Mitgliedsdaten</h3>'
-                    f'<div class="field"><span class="label">Name:</span> {st.session_state.vorname} {st.session_state.nachname}</div>'
-                    f'<div class="field"><span class="label">Anschrift:</span> {st.session_state.adresse}</div>'
-                    f'<div class="field"><span class="label">E-Mail:</span> {st.session_state.email}</div>'
-                    f'<div class="field"><span class="label">Telefon:</span> {telefon_str}</div>'
-                    f'<div class="field"><span class="label">Geburtsdatum:</span> {geburtsdatum_str}</div>'
-                    
-                    '<h3>Gewählter Tarif & Konditionen</h3>'
-                    '<div class="box">'
-                    f'<strong>Tarif:</strong> {st.session_state.tarif}<br><br>'
-                    '• <strong>Zahlung & Rechnungsstellung:</strong> Die Vergütung ist nach Rechnungsstellung sofort per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.<br>'
-                    '• <strong>Terminabsage & Stornierung:</strong> Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.<br>'
-                    '• <strong>Kündigungsfrist:</strong> 2 Wochen zum Laufzeitende'
-                    '</div>'
-                    
-                    '<h3>Digitale Unterschrift</h3>'
-                    f'<div class="field">Rechtsverbindlich digital unterschrieben von <strong>{st.session_state.vorname} {st.session_state.nachname}</strong> am {heute_str}</div>'
-                    f'{sig_html}'
-                    '</body></html>'
+                html_contract = html_template.format(
+                    heute=heute_str,
+                    vorname=st.session_state.vorname,
+                    nachname=st.session_state.nachname,
+                    adresse=st.session_state.adresse,
+                    email=st.session_state.email,
+                    telefon=telefon_str,
+                    geburtsdatum=geburtsdatum_str,
+                    tarif=st.session_state.tarif,
+                    sig_tag=sig_html
                 )
 
                 pdf_bytes = HTML(string=html_contract).write_pdf()
