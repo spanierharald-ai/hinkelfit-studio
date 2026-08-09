@@ -11,14 +11,14 @@ from streamlit_gsheets import GSheetsConnection
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Zentrale", page_icon="⚙️", layout="wide")
 
-# Lokaler Pfad nur noch für das Logo benötigt
-BASE_DIR = r"C:\Users\carol\Desktop\HinkelFit\Planung Wittislingen\Anmeldung"
-
 st.title("Hinkelfit - Studio Zentrale")
 
 # --- GOOGLE SHEETS VERBINDUNG ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- UHRZEIT-OPTIONEN FÜR DAS DROPDOWN ---
+zeit_optionen = [f"{h:02d}:{m:02d}" for h in range(6, 23) for m in (0, 15, 30, 45)]
 
 # --- ZENTRALE E-MAIL FUNKTION ---
 def send_hinkelfit_email(to_email, to_name, subject, body_content_html):
@@ -55,8 +55,21 @@ def send_hinkelfit_email(to_email, to_name, subject, body_content_html):
         """
         msg_related.attach(MIMEText(full_html, "html", "utf-8"))
 
-        logo_path = os.path.join(BASE_DIR, "Logo heller Hintergrund.jpg")
-        if os.path.exists(logo_path):
+        # Cloud-taugliche Suche nach dem Logo in verschiedenen möglichen Ordnern
+        possible_logo_paths = [
+            "Logo heller Hintergrund.jpg",
+            "pdfs/Logo heller Hintergrund.jpg",
+            os.path.join(os.path.dirname(__file__), "..", "Logo heller Hintergrund.jpg"),
+            os.path.join(os.path.dirname(__file__), "..", "pdfs", "Logo heller Hintergrund.jpg")
+        ]
+        
+        logo_path = None
+        for p in possible_logo_paths:
+            if os.path.exists(p):
+                logo_path = p
+                break
+
+        if logo_path:
             with open(logo_path, "rb") as img_file:
                 logo_part = MIMEImage(img_file.read())
                 logo_part.add_header('Content-ID', '<logo>')
@@ -171,19 +184,16 @@ def calculate_contract_end(beitrittsdatum_str, kuendigung_eingang_date):
         try:
             period_end = datetime.date(y, m, day_of_month)
         except ValueError:
-            # Monatsüberlauf abfangen (z.B. 31. in kürzerem Monat -> Monatsletzter)
             if m == 2:
                 period_end = datetime.date(y, m, 28)
             else:
                 period_end = datetime.date(y, m, 30)
                 
         if period_end >= kuendigung_eingang_date:
-            # 2 Wochen (14 Tage) Frist prüfen
             notice_deadline = period_end - datetime.timedelta(days=14)
             if kuendigung_eingang_date <= notice_deadline:
                 return period_end
             else:
-                # Zu spät für diesen Stichtag -> gilt zum nächsten Monat
                 if m == 12:
                     y += 1
                     m = 1
@@ -212,13 +222,11 @@ except Exception:
     df_members = pd.DataFrame()
 
 if not df_members.empty:
-    # --- SAUBERE LÖSUNG: Spalte "Name" global für das ganze Skript anlegen ---
     if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
         df_members["Name"] = df_members["Vorname"] + " " + df_members["Nachname"]
     else:
         df_members["Name"] = "Unbekannt"
 
-    # Sicherstellen, dass alle nötigen Spalten existieren
     needs_update = False
     if "Status" not in df_members.columns:
         df_members["Status"] = "Aktiv"
@@ -233,7 +241,6 @@ if not df_members.empty:
         df_members["Vertrags_Ende"] = ""
         needs_update = True
         
-    # --- AUTOMATISCHER STATUS-CHECK (Gekündigt -> Inaktiv nach Ablauf) ---
     today_date = datetime.date.today()
     for idx, row in df_members.iterrows():
         if row["Status"] == "Gekündigt" and pd.notna(row["Vertrags_Ende"]) and str(row["Vertrags_Ende"]).strip() != "":
@@ -253,12 +260,9 @@ if df_members.empty:
     st.warning("Keine Mitglieder in der Cloud gefunden. Bitte zuerst über die Anmeldung Mitglieder anlegen.")
     st.stop()
 
-# Aktive & in der Kündigungsfrist befindliche Mitglieder dürfen trainieren
 df_training_eligible = df_members[df_members["Status"].isin(["Aktiv", "Gekündigt"])]
-# Nur wirklich aktive für reine Promos (oder wer noch läuft)
 df_active_members = df_members[df_members["Status"] == "Aktiv"]
 
-# Termine aus Google Sheets laden
 try:
     df_termine_global = conn.read(spreadsheet=SHEET_URL, worksheet="Termine", ttl=0)
     df_termine_global = df_termine_global.dropna(how="all")
@@ -281,7 +285,10 @@ with tab1:
         col1, col2 = st.columns(2)
         with col1:
             termin_datum = st.date_input("Datum")
-            termin_uhrzeit = st.time_input("Uhrzeit", value=datetime.time(18, 0))
+            # --- UHRZEIT ALS DROPDOWN ---
+            termin_uhrzeit_str = st.selectbox("Uhrzeit", zeit_optionen, index=zeit_optionen.index("18:00") if "18:00" in zeit_optionen else 0)
+            termin_uhrzeit = datetime.datetime.strptime(termin_uhrzeit_str, "%H:%M").time()
+            
         with col2:
             termin_art = st.selectbox("Terminart", ["Personaltraining (Kleingruppe)", "Kurs", "Probetraining"])
             termin_dauer = st.selectbox("Dauer", ["60 Minuten", "90 Minuten"])
@@ -301,47 +308,54 @@ with tab1:
         else: 
             eligible_members = df_training_eligible[~df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
 
+        # --- MAXIMAL 4 PERSONEN LOGIK ---
+        max_sel = 4 if termin_art == "Personaltraining (Kleingruppe)" else None
+        
         teilnehmer = st.multiselect(
             f"Mitglieder hinzufügen (Optional - Filter: {termin_art})", 
-            eligible_members["Name"].tolist() if not eligible_members.empty else []
+            eligible_members["Name"].tolist() if not eligible_members.empty else [],
+            max_selections=max_sel
         )
         submitted = st.form_submit_button("Neuen Termin in die Cloud speichern")
 
         if submitted:
-            conflict = False
-            termin_dt = datetime.datetime.combine(termin_datum, termin_uhrzeit)
-            termin_end_dt = termin_dt + datetime.timedelta(minutes=75)
-            
-            if not df_termine_global.empty:
-                for _, row in df_termine_global.iterrows():
-                    row_date = datetime.datetime.strptime(str(row["Datum"]), "%Y-%m-%d").date()
-                    if row_date == termin_datum:
-                        exist_start = datetime.datetime.combine(row_date, datetime.datetime.strptime(str(row["Uhrzeit"]), "%H:%M").time())
-                        exist_end = exist_start + datetime.timedelta(minutes=75)
-                        if termin_dt < exist_end and termin_end_dt > exist_start:
-                            conflict = True
-                            break
-
-            if termin_art == "Probetraining" and i_name.strip() != "":
-                teilnehmer.append(f"{i_name.strip()} (Interessent: {i_email}, {i_tel})")
-                
-            overbooked_members = check_limits(teilnehmer, str(termin_datum), df_termine_global, df_members)
-
-            if overbooked_members:
-                for person, limit in overbooked_members: st.error(f"⚠️ {person} kann nicht hinzugefügt werden! Wochenlimit ({limit}) erreicht.")
-            elif conflict:
-                st.error(f"⚠️ Buchungskonflikt: Überschneidung mit bestehendem Termin.")
+            if termin_art == "Personaltraining (Kleingruppe)" and (len(teilnehmer) + (1 if i_name.strip() else 0)) > 4:
+                st.error("⚠️ Ein Kleingruppen-Personaltraining ist auf maximal 4 Personen begrenzt!")
             else:
-                new_termin = pd.DataFrame([{
-                    "Datum": str(termin_datum), "Uhrzeit": termin_uhrzeit.strftime("%H:%M"),
-                    "Art": termin_art, "Dauer": termin_dauer, "Teilnehmer": ", ".join(teilnehmer) if teilnehmer else ""
-                }])
-                df_to_save = pd.concat([df_termine_global, new_termin], ignore_index=True) if not df_termine_global.empty else new_termin
+                conflict = False
+                termin_dt = datetime.datetime.combine(termin_datum, termin_uhrzeit)
+                termin_end_dt = termin_dt + datetime.timedelta(minutes=75)
                 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_to_save)
-                st.cache_data.clear()
-                st.success("✅ Termin erfolgreich in Google Sheets gespeichert!")
-                st.rerun()
+                if not df_termine_global.empty:
+                    for _, row in df_termine_global.iterrows():
+                        row_date = datetime.datetime.strptime(str(row["Datum"]), "%Y-%m-%d").date()
+                        if row_date == termin_datum:
+                            exist_start = datetime.datetime.combine(row_date, datetime.datetime.strptime(str(row["Uhrzeit"]), "%H:%M").time())
+                            exist_end = exist_start + datetime.timedelta(minutes=75)
+                            if termin_dt < exist_end and termin_end_dt > exist_start:
+                                conflict = True
+                                break
+
+                if termin_art == "Probetraining" and i_name.strip() != "":
+                    teilnehmer.append(f"{i_name.strip()} (Interessent: {i_email}, {i_tel})")
+                    
+                overbooked_members = check_limits(teilnehmer, str(termin_datum), df_termine_global, df_members)
+
+                if overbooked_members:
+                    for person, limit in overbooked_members: st.error(f"⚠️ {person} kann nicht hinzugefügt werden! Wochenlimit ({limit}) erreicht.")
+                elif conflict:
+                    st.error(f"⚠️ Buchungskonflikt: Überschneidung mit bestehendem Termin.")
+                else:
+                    new_termin = pd.DataFrame([{
+                        "Datum": str(termin_datum), "Uhrzeit": termin_uhrzeit.strftime("%H:%M"),
+                        "Art": termin_art, "Dauer": termin_dauer, "Teilnehmer": ", ".join(teilnehmer) if teilnehmer else ""
+                    }])
+                    df_to_save = pd.concat([df_termine_global, new_termin], ignore_index=True) if not df_termine_global.empty else new_termin
+                    
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_to_save)
+                    st.cache_data.clear()
+                    st.success("✅ Termin erfolgreich in Google Sheets gespeichert!")
+                    st.rerun()
 
     st.markdown("---")
     st.subheader("Geplante Termine (Übersicht)")
@@ -387,20 +401,27 @@ with tab1:
             valid_members = [t for t in current_teilnehmer_list if t in all_names]
             interessenten = [t for t in current_teilnehmer_list if "Interessent" in t]
 
-            new_teilnehmer = st.multiselect("Mitglieder hinzufügen / entfernen:", options=all_names, default=valid_members, key=f"multi_edit_{edit_id}")
+            max_sel_edit = 4 if termin_art_edit == "Personaltraining (Kleingruppe)" else None
+            # Sicherheitscheck, damit Streamlit nicht abstürzt falls fälschlicherweise schon 5 drin sind
+            default_valid = valid_members[:4] if max_sel_edit == 4 else valid_members
+
+            new_teilnehmer = st.multiselect("Mitglieder hinzufügen / entfernen:", options=all_names, default=default_valid, max_selections=max_sel_edit, key=f"multi_edit_{edit_id}")
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
                 if st.button("💾 Aktualisieren"):
                     final_teilnehmer = new_teilnehmer + interessenten
-                    overbooked = check_limits(final_teilnehmer, termin_datum_edit, df_termine_global, df_members, exclude_termin_id=edit_id)
-                    if overbooked:
-                        for p, l in overbooked: st.error(f"⚠️ {p} hat das Wochenlimit ({l}) erreicht.")
+                    if termin_art_edit == "Personaltraining (Kleingruppe)" and len(final_teilnehmer) > 4:
+                        st.error("⚠️ Ein Kleingruppen-Personaltraining ist auf maximal 4 Personen begrenzt!")
                     else:
-                        df_show.at[edit_id, "Teilnehmer"] = ", ".join(final_teilnehmer)
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_show)
-                        st.cache_data.clear()
-                        st.success("Liste in der Cloud aktualisiert!")
-                        st.rerun()
+                        overbooked = check_limits(final_teilnehmer, termin_datum_edit, df_termine_global, df_members, exclude_termin_id=edit_id)
+                        if overbooked:
+                            for p, l in overbooked: st.error(f"⚠️ {p} hat das Wochenlimit ({l}) erreicht.")
+                        else:
+                            df_show.at[edit_id, "Teilnehmer"] = ", ".join(final_teilnehmer)
+                            conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_show)
+                            st.cache_data.clear()
+                            st.success("Liste in der Cloud aktualisiert!")
+                            st.rerun()
             with col_btn2:
                 if st.button("🧹 Alle entfernen"):
                     df_show.at[edit_id, "Teilnehmer"] = ""
@@ -412,13 +433,21 @@ with tab1:
         with col_edit2:
             st.write("**2. Termin verschieben**")
             cur_date_obj = datetime.datetime.strptime(termin_datum_edit, "%Y-%m-%d").date()
-            cur_time_obj = datetime.datetime.strptime(termin_uhrzeit_edit, "%H:%M").time()
             
             new_date = st.date_input("Neues Datum", value=cur_date_obj, key=f"d_{edit_id}")
-            new_time = st.time_input("Neue Uhrzeit", value=cur_time_obj, key=f"t_{edit_id}")
+            
+            # --- UHRZEIT ALS DROPDOWN ---
+            # Falls die alte Uhrzeit aus irgendeinem Grund unrund war, wird sie hinzugefügt
+            if termin_uhrzeit_edit not in zeit_optionen:
+                zeit_optionen.append(termin_uhrzeit_edit)
+                zeit_optionen.sort()
+                
+            new_time_str = st.selectbox("Neue Uhrzeit", zeit_optionen, index=zeit_optionen.index(termin_uhrzeit_edit), key=f"t_{edit_id}")
+            new_time = datetime.datetime.strptime(new_time_str, "%H:%M").time()
             
             if st.button("🔄 Verschieben & Mail senden"):
-                if new_date == cur_date_obj and new_time == cur_time_obj: st.warning("Keine Änderung.")
+                if str(new_date) == termin_datum_edit and new_time_str == termin_uhrzeit_edit: 
+                    st.warning("Keine Änderung.")
                 else:
                     conflict = False
                     termin_dt = datetime.datetime.combine(new_date, new_time)
@@ -525,7 +554,6 @@ with tab3:
         elif val == 'Inaktiv': return 'color: red;'
         return 'color: green;'
     
-    # Drop 'Name' for visual representation so it matches your old table if desired (optional)
     styled_df = df_members.drop(columns=["Name"], errors="ignore").style.map(style_status, subset=['Status'])
     st.dataframe(styled_df, use_container_width=True)
     
@@ -559,19 +587,15 @@ with tab3:
             kuendigung_datum = st.date_input("Kündigungseingangsdatum:", value=default_date)
             
             if st.button("🚀 Kündigung in der Cloud erfassen & Bestätigungs-Mail senden"):
-                # Vertragsende berechnen
                 vertrags_ende_date = calculate_contract_end(str(beitrittsdatum), kuendigung_datum)
                 
-                # In Datenbank schreiben
                 df_members.at[member_idx, "Status"] = "Gekündigt"
                 df_members.at[member_idx, "Kündigungs_Eingang"] = str(kuendigung_datum)
                 df_members.at[member_idx, "Vertrags_Ende"] = str(vertrags_ende_date)
                 
-                # Wir droppen die Name Spalte beim Speichern, um die Ursprungs-Datenbank sauber zu halten
                 conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 
-                # E-Mail versenden
                 if pd.notna(member_email) and "@" in str(member_email):
                     vorname = df_members.at[member_idx, "Vorname"]
                     subject = "Bestätigung deiner Kündigung bei Hinkelfit"
