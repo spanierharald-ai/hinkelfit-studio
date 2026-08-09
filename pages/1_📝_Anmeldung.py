@@ -21,9 +21,8 @@ if "password_correct" not in st.session_state or not st.session_state["password_
     st.warning("🔒 Bitte logge dich zuerst ein.")
     st.stop()
 
-# Session State initialisieren
+# Session State Initialisierung
 if "step" not in st.session_state: st.session_state.step = 1
-# Status für die Buttons
 if "agb_ok" not in st.session_state: st.session_state.agb_ok = False
 if "haftung_ok" not in st.session_state: st.session_state.haftung_ok = False
 if "dsgvo_ok" not in st.session_state: st.session_state.dsgvo_ok = False
@@ -50,28 +49,43 @@ if st.session_state.step == 1:
     with col2:
         st.session_state.email = st.text_input("E-Mail-Adresse *", value=st.session_state.email)
         st.session_state.telefon = st.text_input("Telefonnummer", value=st.session_state.telefon)
-        st.session_state.adresse = st.text_input("Adresse", value=st.session_state.adresse)
+        st.session_state.adresse = st.text_input("Adresse (Straße, PLZ, Ort)", value=st.session_state.adresse)
 
     st.subheader("🏋️ 2. Tarif & Ziele")
     st.session_state.tarif = st.selectbox("Tarifauswahl", 
-        ["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"])
-    st.session_state.experience = st.selectbox("Trainingserfahrung", ["Anfänger (weniger als 6 Monate)", "Leicht fortgeschritten (6 Monate bis 2 Jahre)", "Fortgeschritten (über 2 Jahre)"])
+        ["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"],
+        index=["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"].index(st.session_state.tarif)
+    )
     st.session_state.main_goal = st.multiselect("Hauptziele", ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], default=st.session_state.main_goal)
 
     st.subheader("📄 3. Vertrag & Haftung")
     
-    # AGB
-    st.info("**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung sofort per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** 48 Stunden vorher.\n\n• **Kündigungsfrist:** 2 Wochen zum Monatsende")
+    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Monatsende""")
     if st.button("✅ AGB akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅"):
         st.session_state.agb_ok = True
     
-    # Haftung
-    st.info("**Risiko- und Haftungserklärung:** Eigenverantwortung, Wahrheitspflicht, ärztliche Abklärung, Risikoaufklärung (körperliche Belastung, Verletzungsrisiko), Haftungsbeschränkung für Sach- und Personenschäden.")
+    st.info("""**1. Gesundheitliche Eigenverantwortung & Wahrheitsgemäße Angaben**
+* **Eigenverantwortung:** Der Kunde versichert, dass er gesund ist und keine gesundheitlichen Einschränkungen vorliegen, die einer Teilnahme am Training entgegenstehen.
+* **Wahrheitspflicht:** Alle Angaben im Anamnesebogen wurden vollständig und wahrheitsgemäß gemacht. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.
+* **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtet sich der Kunde, vor der Teilnahme einen Arzt zu konsultieren.
+
+**2. Risikoaufklärung**
+* **Körperliche Belastung:** Dem Kunden ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.
+* **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.
+* **Sofortiger Trainingsstopp:** Der Kunde verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.
+
+**3. Haftungsbeschränkung**
+* **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.
+* **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.
+* **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.
+
+**4. Befolgen von Anweisungen**
+* Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
     if st.button("✅ Haftungsausschluss akzeptieren" if not st.session_state.haftung_ok else "Haftungsausschluss akzeptiert ✅"):
         st.session_state.haftung_ok = True
-        
-    # Datenschutz
-    st.info("**Datenschutz:** Einwilligung in die Datenverarbeitung (Art. 9 DSGVO) zur individuellen Trainingsplanung.")
+    
+    st.info("""**Einwilligung in die Datenverarbeitung (Art. 9 DSGVO):**
+Ich willige ausdrücklich ein, dass meine gesundheitsbezogenen Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte (PDF) erfolgt im geschützten Cloud-Speicher Google Drive (Google Ireland Ltd.). Diese Einwilligung kann ich jederzeit mit Wirkung für die Zukunft widerrufen.""")
     if st.button("✅ Datenschutz akzeptieren" if not st.session_state.dsgvo_ok else "Datenschutz akzeptiert ✅"):
         st.session_state.dsgvo_ok = True
 
@@ -80,13 +94,13 @@ if st.session_state.step == 1:
 
     if st.button("🚀 Anmeldung abschließen & weiter zur Anamnese"):
         if not (st.session_state.vorname and st.session_state.nachname and st.session_state.email):
-            st.error("⚠️ Bitte Name und E-Mail ausfüllen!")
+            st.error("⚠️ Bitte Pflichtfelder (Name, E-Mail) ausfüllen!")
         elif not (st.session_state.agb_ok and st.session_state.haftung_ok and st.session_state.dsgvo_ok):
-            st.error("⚠️ Bitte erst alle drei Zustimmungen anklicken!")
+            st.error("⚠️ Bitte erst alle Zustimmungen (AGB, Haftung, Datenschutz) per Button bestätigen!")
         elif canvas_result.image_data is None:
             st.error("⚠️ Bitte unterschreiben!")
         else:
-            st.session_state.member_data["signature"] = canvas_result.image_data
+            st.session_state.member_data.update({"vorname": st.session_state.vorname, "nachname": st.session_state.nachname, "email": st.session_state.email, "tarif": st.session_state.tarif, "signature": canvas_result.image_data})
             st.session_state.step = 2
             st.rerun()
 
@@ -95,17 +109,4 @@ if st.session_state.step == 1:
 # -------------------------------------------------------------------------
 elif st.session_state.step == 2:
     st.title("🩺 Anamnesebogen")
-    cb_bluthochdruck = st.checkbox("Bluthochdruck")
-    cb_herzinfarkt = st.checkbox("Herzinfarkt")
-    cb_ruecken = st.checkbox("Rückenbeschwerden")
-    surgeries_meds = st.text_area("Operationen oder Medikamente?")
-    
-    if st.button("✅ Registrierung finalisieren"):
-        # Hier läuft deine bestehende Logik zum E-Mail-Versand und Drive-Upload...
-        st.session_state.step = 3
-        st.rerun()
-
-elif st.session_state.step == 3:
-    st.success("✅ Alles erledigt!")
-    if st.button("🔄 Neues Mitglied"):
-         st.session_state.step = 1; st.session_state.member_data = {}; st.rerun()
+    # ... (Dein restlicher Anamnese-Code)
