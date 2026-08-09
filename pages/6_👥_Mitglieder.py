@@ -2,53 +2,46 @@ import datetime
 import os
 import pandas as pd
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Mitglieder & Interessenten", page_icon="👥", layout="wide")
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 st.title("👥 Mitglieder & Interessenten (Bürotag-Checkliste)")
 
-# --- DATENBANKEN AUS DER CLOUD LADEN & SPALTEN SICHERSTELLEN ---
-needs_member_update = False
+# --- DATENBANKEN AUS DER CLOUD LADEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception as e:
-    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.error("⚠️ Die Verbindung zur Supabase-Datenbank wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     df_members = pd.DataFrame()
 
 if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden.")
     st.stop()
 
-# --- TYP-KONFLIKTE VERHINDERN & NAMENS-HILFSSPALTE ---
-text_columns = ['Mitglieder_ID', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Tarif', 'Status', 'Buero_Status']
-for col in text_columns:
-    if col in df_members.columns:
-        df_members[col] = df_members[col].astype(object)
-
 if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
     df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
 else:
     df_members["Name"] = "Unbekannt"
-
+    
 if "Buero_Status" not in df_members.columns:
     df_members["Buero_Status"] = "Offen"
-    needs_member_update = True
-    
-if needs_member_update:
-    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-    st.cache_data.clear()
 
 try:
-    df_termine = conn.read(spreadsheet=SHEET_URL, worksheet="Termine", ttl=0)
-    df_termine = df_termine.dropna(how="all")
-    if "Teilnehmer" in df_termine.columns:
+    res_termine = supabase.table("Termine").select("*").execute()
+    df_termine = pd.DataFrame(res_termine.data)
+    if not df_termine.empty and "Teilnehmer" in df_termine.columns:
         df_termine["Teilnehmer"] = df_termine["Teilnehmer"].fillna("").astype(str)
 except Exception:
     df_termine = pd.DataFrame()
@@ -84,11 +77,7 @@ with tab1:
                     with col_m3:
                         st.write("")
                         if st.button("✅ Erledigt / Abhaken", key=f"done_member_{row.get('Mitglieder_ID', idx)}"):
-                            m_idx = df_members.index[df_members["Mitglieder_ID"] == row["Mitglieder_ID"]].tolist()[0]
-                            df_members.at[m_idx, "Buero_Status"] = "Erledigt"
-                            
-                            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                            st.cache_data.clear()
+                            supabase.table("Mitglieder").update({"Buero_Status": "Erledigt"}).eq("Mitglieder_ID", row["Mitglieder_ID"]).execute()
                             
                             st.success(f"{row['Name']} als erledigt in der Cloud markiert!")
                             st.rerun()
@@ -103,9 +92,7 @@ with tab1:
                 df_done_show["Beitritt"] = df_done_show.get("Datum", "-")
                 st.dataframe(df_done_show[["Mitglieder_ID", "Name", "Tarif", "Beitritt"]], use_container_width=True)
                 if st.button("🔄 Alle auf 'Offen' zurücksetzen (z. B. für den nächsten Bürotag)"):
-                    df_members["Buero_Status"] = "Offen"
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                    st.cache_data.clear()
+                    supabase.table("Mitglieder").update({"Buero_Status": "Offen"}).eq("Buero_Status", "Erledigt").execute()
                     st.success("Alle Mitglieder wurden wieder auf 'Offen' gesetzt!")
                     st.rerun()
             else:
@@ -123,7 +110,8 @@ with tab2:
     
     if not df_termine.empty:
         interessenten_entries = []
-        for t_idx, row in df_termine.iterrows():
+        for _, row in df_termine.iterrows():
+            t_idx = row.get("Termin_ID", _)
             teilnehmer_str = str(row["Teilnehmer"])
             if "Interessent" in teilnehmer_str:
                 for t in teilnehmer_str.split(","):
@@ -143,13 +131,14 @@ with tab2:
                 with st.expander(f"📋 {entry['Eintrag'].split(' (')[0]} (Termin: {entry['Datum']} um {entry['Uhrzeit']} Uhr)"):
                     st.write(f"**Kontaktdaten:** {entry['Eintrag']}")
                     if st.button("🗑️ Aus Liste entfernen / Erledigt", key=f"done_int_{entry['Termin_ID']}_{entry['Eintrag'][:10]}"):
-                        t_str = str(df_termine.at[entry['Termin_ID'], "Teilnehmer"])
+                        # Finde die Zeile anhand der Termin_ID
+                        termin_row = df_termine[df_termine["Termin_ID"] == entry['Termin_ID']].iloc[0]
+                        t_str = str(termin_row["Teilnehmer"])
                         parts = [p.strip() for p in t_str.split(",")]
                         parts = [p for p in parts if p != entry['Eintrag']]
-                        df_termine.at[entry['Termin_ID'], "Teilnehmer"] = ", ".join(parts)
+                        new_t_str = ", ".join(parts)
                         
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Termine", data=df_termine)
-                        st.cache_data.clear()
+                        supabase.table("Termine").update({"Teilnehmer": new_t_str}).eq("Termin_ID", entry['Termin_ID']).execute()
                         
                         st.success("Interessent bearbeitet und aus der Cloud-Liste entfernt!")
                         st.rerun()
