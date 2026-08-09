@@ -45,7 +45,7 @@ def send_hinkelfit_email(to_email, to_name, subject, body_content_html):
             <p>Hallo {to_name},</p>
             {body_content_html}
             <br>
-            <p>Sportliche Grüße<br>Harald</p>
+            <p>Sportliche Grüße<br>Harald<br><b>Hinkelfit</b></p>
             <br>
             <img src="cid:logo" alt="Hinkelfit Logo" style="width: 250px;">
         </body>
@@ -53,8 +53,20 @@ def send_hinkelfit_email(to_email, to_name, subject, body_content_html):
         """
         msg_related.attach(MIMEText(full_html, "html", "utf-8"))
 
-        logo_path = os.path.join(BASE_DIR, "Logo heller Hintergrund.jpg")
-        if os.path.exists(logo_path):
+        possible_logo_paths = [
+            "Logo heller Hintergrund.jpg",
+            "pdfs/Logo heller Hintergrund.jpg",
+            os.path.join(os.path.dirname(__file__), "..", "Logo heller Hintergrund.jpg"),
+            os.path.join(os.path.dirname(__file__), "..", "pdfs", "Logo heller Hintergrund.jpg")
+        ]
+        
+        logo_path = None
+        for p in possible_logo_paths:
+            if os.path.exists(p):
+                logo_path = p
+                break
+
+        if logo_path:
             with open(logo_path, "rb") as img_file:
                 logo_part = MIMEImage(img_file.read())
                 logo_part.add_header('Content-ID', '<logo>')
@@ -75,36 +87,42 @@ def send_hinkelfit_email(to_email, to_name, subject, body_content_html):
 try:
     df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
     df_members = df_members.dropna(how="all")
-except Exception:
-    df_members = pd.DataFrame()
-
-needs_update = False
-if not df_members.empty:
-    if "Zahlungsstatus" not in df_members.columns:
-        df_members["Zahlungsstatus"] = "Bezahlt"
-        needs_update = True
-    if "Offener_Betrag" not in df_members.columns:
-        df_members["Offener_Betrag"] = 0.0
-        needs_update = True
-    if "Letzte_Zahlung" not in df_members.columns:
-        df_members["Letzte_Zahlung"] = "-"
-        needs_update = True
-    if "Letzte_Rechnung_Monat" not in df_members.columns:
-        df_members["Letzte_Rechnung_Monat"] = ""
-        needs_update = True
-        
-    # Sicherstellen, dass Offener_Betrag eine Zahl ist
-    df_members["Offener_Betrag"] = pd.to_numeric(df_members["Offener_Betrag"], errors="coerce").fillna(0.0)
-        
-    if needs_update:
-        conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
-        st.cache_data.clear()
-
-st.title("💶 Zahlungen, LexOffice-Rechnungen & Mahnwesen")
+except Exception as e:
+    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.stop()
 
 if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden. Bitte zuerst über die Anmeldung Mitglieder anlegen.")
     st.stop()
+
+# --- SAUBERE LÖSUNG: Hilfsspalte "Name" anlegen ---
+if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+    df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
+else:
+    df_members["Name"] = "Unbekannt"
+
+needs_update = False
+if "Zahlungsstatus" not in df_members.columns:
+    df_members["Zahlungsstatus"] = "Bezahlt"
+    needs_update = True
+if "Offener_Betrag" not in df_members.columns:
+    df_members["Offener_Betrag"] = 0.0
+    needs_update = True
+if "Letzte_Zahlung" not in df_members.columns:
+    df_members["Letzte_Zahlung"] = "-"
+    needs_update = True
+if "Letzte_Rechnung_Monat" not in df_members.columns:
+    df_members["Letzte_Rechnung_Monat"] = ""
+    needs_update = True
+    
+# Sicherstellen, dass Offener_Betrag eine Zahl ist
+df_members["Offener_Betrag"] = pd.to_numeric(df_members["Offener_Betrag"], errors="coerce").fillna(0.0)
+    
+if needs_update:
+    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
+    st.cache_data.clear()
+
+st.title("💶 Zahlungen, LexOffice-Rechnungen & Mahnwesen")
 
 
 # -------------------------------------------------------------------------
@@ -153,9 +171,9 @@ if not df_missing_inv.empty:
         col_inv1, col_inv2, col_inv3 = st.columns([2, 2, 1])
         with col_inv1:
             st.markdown(f"**{row['Name']}** ({row['Mitglieder_ID']})")
-            st.caption(f"Tarif: {row['Tarif']} | Beitritt: {row['Beitrittsdatum']}")
+            st.caption(f"Tarif: {row['Tarif']} | Beitritt: {row.get('Datum', 'Unbekannt')}")
         with col_inv2:
-            st.write(f"E-Mail: `{row['Email']}`")
+            st.write(f"E-Mail: `{row.get('E-Mail', 'Keine')}`")
         with col_inv3:
             if st.button("✅ In LexOffice erstellt", key=f"inv_done_{row['Mitglieder_ID']}"):
                 m_idx = df_members.index[df_members["Mitglieder_ID"] == row["Mitglieder_ID"]].tolist()[0]
@@ -165,7 +183,7 @@ if not df_missing_inv.empty:
                     months_list.append(selected_billing_month)
                 df_members.at[m_idx, "Letzte_Rechnung_Monat"] = ", ".join(months_list)
                 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 
                 st.success(f"Rechnung für {row['Name']} ({selected_billing_month}) als erstellt markiert!")
@@ -197,7 +215,7 @@ with tab1:
                 col_info1, col_info2 = st.columns(2)
                 with col_info1:
                     st.write(f"**Tarif:** {row['Tarif']}")
-                    st.write(f"**E-Mail:** {row['Email']}")
+                    st.write(f"**E-Mail:** {row.get('E-Mail', 'Keine')}")
                 with col_info2:
                     st.write(f"**Letzte Zahlung:** {row['Letzte_Zahlung']}")
                     st.write(f"**Status:** {row['Zahlungsstatus']}")
@@ -210,7 +228,7 @@ with tab1:
                     st.write("")
                     st.write("")
                     if st.button(f"✉️ Zahlungserinnerung senden", key=f"btn_mail_{row['Mitglieder_ID']}"):
-                        email = row.get("Email", "")
+                        email = row.get("E-Mail", "")
                         name = row.get("Name", "").split()[0]
                         if pd.notna(email) and "@" in str(email):
                             subject = "Zahlungserinnerung – Offener Mitgliedsbeitrag bei Hinkelfit"
@@ -262,7 +280,7 @@ with tab2:
                 if new_due == 0:
                     df_members.at[sel_row_idx, "Zahlungsstatus"] = "Bezahlt"
                 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 
                 st.success(f"Zahlung über {paid_amount:.2f} € für {df_members.at[sel_row_idx, 'Name']} verbucht! Neuer offener Saldo: {new_due:.2f} €.")
@@ -301,7 +319,7 @@ with tab3:
             
             df_members.at[m_inv_idx, "Letzte_Rechnung_Monat"] = ", ".join(months_list)
             
-            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
             st.cache_data.clear()
             
             st.success(f"Rechnungsstatus für {sel_member_inv} ({manual_month}) aktualisiert.")
@@ -323,7 +341,7 @@ with tab4:
             df_members.at[m_idx, "Offener_Betrag"] = current_amount + float(due_amount)
             df_members.at[m_idx, "Zahlungsstatus"] = "Offen"
             
-            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
             st.cache_data.clear()
             
             st.success(f"Offener Posten über {due_amount} € für {sel_member_due} hinzugefügt.")
