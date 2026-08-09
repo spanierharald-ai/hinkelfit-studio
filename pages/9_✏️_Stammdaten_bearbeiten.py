@@ -16,12 +16,19 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 try:
     df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
     df_members = df_members.dropna(how="all")
-except Exception:
-    df_members = pd.DataFrame()
+except Exception as e:
+    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.stop()
 
 if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden.")
     st.stop()
+
+# --- SAUBERE LÖSUNG: Hilfsspalte "Name" für die Suche/Anzeige ---
+if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+    df_members["Name"] = df_members["Vorname"] + " " + df_members["Nachname"]
+else:
+    df_members["Name"] = "Unbekannt"
 
 # Sicherstellen, dass Pflichtspalten existieren
 needs_update = False
@@ -33,7 +40,8 @@ if "Notizen" not in df_members.columns:
     needs_update = True
     
 if needs_update:
-    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+    # Wir löschen die Hilfsspalte "Name" wieder, bevor wir in die Cloud speichern
+    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
     st.cache_data.clear()
 
 # --- MITGLIEDERSUCHE ---
@@ -54,7 +62,7 @@ if filtered_df.empty:
 
 # --- MITGLIED AUSWÄHLEN ---
 member_options = filtered_df.apply(
-    lambda x: f"{x['Mitglieder_ID']} | {x['Name']} (E-Mail: {x.get('Email', '-')})", 
+    lambda x: f"{x['Mitglieder_ID']} | {x['Name']} (E-Mail: {x.get('E-Mail', '-')})", 
     axis=1
 ).tolist()
 
@@ -72,15 +80,18 @@ if selected_member_str:
         col1, col2 = st.columns(2)
         
         with col1:
-            new_name = st.text_input("Vollständiger Name:", value=str(row.get('Name', '')))
-            new_email = st.text_input("E-Mail-Adresse:", value=str(row.get('Email', '')))
-            new_anschrift = st.text_area("Anschrift:", value=str(row.get('Anschrift', '')))
+            # An die echte Datenbank-Struktur angepasst (Vorname/Nachname getrennt)
+            new_vorname = st.text_input("Vorname:", value=str(row.get('Vorname', '')))
+            new_nachname = st.text_input("Nachname:", value=str(row.get('Nachname', '')))
+            new_email = st.text_input("E-Mail-Adresse:", value=str(row.get('E-Mail', '')))
+            new_adresse = st.text_area("Adresse:", value=str(row.get('Adresse', '')))
             
         with col2:
+            # Tarife exakt an die Formulierungen aus der Anmeldung angepasst
             available_tariffs = [
-                "Kurse 2x wöchentlich (59€)",
-                "1x wöchentlich Kleingruppen-Personal-Training (99€)",
-                "2x wöchentlich Kleingruppen-Personaltraining (179€)"
+                "Kurse 2x wöchentlich, 59€ pro Monat",
+                "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat",
+                "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
             ]
             current_tariff = row.get('Tarif', available_tariffs[0])
             tariff_index = available_tariffs.index(current_tariff) if current_tariff in available_tariffs else 0
@@ -96,15 +107,17 @@ if selected_member_str:
         submit_edit = st.form_submit_button("💾 Änderungen in die Cloud speichern")
         
         if submit_edit:
-            df_members.at[m_idx, 'Name'] = new_name
-            df_members.at[m_idx, 'Email'] = new_email
-            df_members.at[m_idx, 'Anschrift'] = new_anschrift
+            df_members.at[m_idx, 'Vorname'] = new_vorname
+            df_members.at[m_idx, 'Nachname'] = new_nachname
+            df_members.at[m_idx, 'E-Mail'] = new_email
+            df_members.at[m_idx, 'Adresse'] = new_adresse
             df_members.at[m_idx, 'Tarif'] = new_tariff
             df_members.at[m_idx, 'Status'] = new_status
             df_members.at[m_idx, 'Notizen'] = new_notes
             
-            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+            # Ohne die Hilfsspalte "Name" sauber in Google Sheets abspeichern
+            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
             st.cache_data.clear()
             
-            st.success(f"Die Stammdaten für {new_name} wurden erfolgreich aktualisiert!")
+            st.success(f"Die Stammdaten für {new_vorname} {new_nachname} wurden erfolgreich aktualisiert!")
             st.rerun()
