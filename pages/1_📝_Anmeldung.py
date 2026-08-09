@@ -197,4 +197,4 @@ if submit_button:
             
     # Kurze Pause für die Erfolgsmeldung, dann Seitenwechsel
     time.sleep(2)
-    st.switch_page("pages/3_🩺_Anamnese.py")
+    st.switch_page("pages/12_🩺_Anamnese.py")
