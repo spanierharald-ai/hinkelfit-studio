@@ -9,7 +9,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 from email.mime.application import MIMEApplication
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 
@@ -30,9 +30,14 @@ if not os.path.exists(MEMBERS_DIR):
     except:
         pass
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # --- ZENTRALE E-MAIL FUNKTION MIT ANHANG & LOGO ---
 def send_hinkelfit_email_with_pdf(to_email, to_name, subject, body_content_html, pdf_path):
@@ -65,7 +70,7 @@ def send_hinkelfit_email_with_pdf(to_email, to_name, subject, body_content_html,
         """
         msg_related.attach(MIMEText(full_html, "html", "utf-8"))
 
-        # Cloud-taugliche Suche nach dem Logo in verschiedenen möglichen Ordnern
+        # Cloud-taugliche Suche nach dem Logo
         possible_logo_paths = [
             "Logo heller Hintergrund.jpg",
             "pdfs/Logo heller Hintergrund.jpg",
@@ -190,23 +195,17 @@ def generate_tariff_pdf(member_data, old_tariff, new_tariff, effective_date, sig
 
 st.title("🔄 Vertragsänderungen, Tarifwechsel & Pausierung")
 
-# --- DATENBANK AUS DER CLOUD LADEN & SPALTEN SICHERSTELLEN ---
+# --- DATENBANK AUS SUPABASE LADEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception as e:
-    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.error("⚠️ Die Verbindung zur Supabase-Datenbank wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     df_members = pd.DataFrame()
 
 if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden.")
     st.stop()
-
-# --- TYP-KONFLIKTE VERHINDERN (WICHTIG FÜR TEXTSPALTEN) ---
-text_columns = ['Mitglieder_ID', 'Vorname', 'Nachname', 'E-Mail', 'Adresse', 'Tarif', 'Status', 'Pausiert_Bis', 'Notizen', 'Datum']
-for col in text_columns:
-    if col in df_members.columns:
-        df_members[col] = df_members[col].astype(object)
 
 # --- SAUBERE LÖSUNG: Hilfsspalte "Name" anlegen ---
 if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
@@ -214,25 +213,17 @@ if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
 else:
     df_members["Name"] = "Unbekannt"
 
-needs_update = False
+# Fallback falls Spalten nicht existieren, um Fehler in Pandas zu vermeiden
 if "Status" not in df_members.columns:
     df_members["Status"] = "Aktiv"
-    needs_update = True
 if "Pausiert_Bis" not in df_members.columns:
     df_members["Pausiert_Bis"] = "-"
-    needs_update = True
 if "Notizen" not in df_members.columns:
     df_members["Notizen"] = ""
-    needs_update = True
-    
-if needs_update:
-    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-    st.cache_data.clear()
-
 
 # --- MITGLIED AUSWÄHLEN ---
 member_options = df_members.apply(
-    lambda x: f"{x['Mitglieder_ID']} | {x['Name']} (Tarif: {x['Tarif']} | Status: {x['Status']})", 
+    lambda x: f"{x['Mitglieder_ID']} | {x['Name']} (Tarif: {x.get('Tarif', '-')} | Status: {x.get('Status', '-')})", 
     axis=1
 ).tolist()
 
@@ -249,8 +240,8 @@ if selected_member_str:
         st.write(f"**Name:** {row['Name']}")
         st.write(f"**Mitglieder-ID:** {row['Mitglieder_ID']}")
     with col_info2:
-        st.write(f"**Aktueller Tarif:** {row['Tarif']}")
-        st.write(f"**Aktueller Status:** {row['Status']}")
+        st.write(f"**Aktueller Tarif:** {row.get('Tarif', '-')}")
+        st.write(f"**Aktueller Status:** {row.get('Status', '-')}")
     with col_info3:
         st.write(f"**Beitrittsdatum:** {row.get('Datum', '-')}")
         pausiert_info = row.get("Pausiert_Bis", "-")
@@ -267,7 +258,7 @@ if selected_member_str:
         st.subheader("Tarifwechsel durchführen & Digitale Unterschrift")
         st.write("Wähle den neuen Tarif aus und unterschreibe im Feld zur Bestätigung.")
         
-        current_tariff = row['Tarif']
+        current_tariff = row.get('Tarif', '-')
         
         available_tariffs = [
             "Kurse 2x wöchentlich, 59€ pro Monat",
@@ -321,15 +312,18 @@ if selected_member_str:
                 if os.path.exists(temp_sig_path):
                     os.remove(temp_sig_path)
                 
-                # 2. In Cloud-Datenbank aktualisieren
-                df_members.at[m_idx, "Tarif"] = new_tariff
+                # 2. In Cloud-Datenbank (Supabase) aktualisieren
                 timestamp_str = datetime.date.today().strftime("%d.%m.%Y")
-                current_notes = str(df_members.at[m_idx, "Notizen"]) if pd.notna(df_members.at[m_idx, "Notizen"]) and str(df_members.at[m_idx, "Notizen"]).strip() != 'nan' else ""
+                current_notes = str(row.get("Notizen", "")) if pd.notna(row.get("Notizen")) and str(row.get("Notizen")).strip() != 'nan' else ""
                 new_note = f"[{timestamp_str}] Tarifwechsel von '{current_tariff}' zu '{new_tariff}' (Gültig ab {effective_str}). Digital unterschrieben. {tariff_note}".strip()
-                df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
+                final_notes = f"{current_notes} | {new_note}" if current_notes else new_note
                 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                st.cache_data.clear()
+                # Punktuelles Update
+                update_data = {
+                    "Tarif": new_tariff,
+                    "Notizen": final_notes
+                }
+                supabase.table("Mitglieder").update(update_data).eq("Mitglieder_ID", sel_id).execute()
                 
                 # 3. E-Mail mit PDF versenden
                 email = row.get("E-Mail", "")
@@ -360,7 +354,7 @@ if selected_member_str:
     # -------------------------------------------------------------------------
     with tab2:
         st.subheader("Mitgliedschaft pausieren oder reaktivieren")
-        current_status = row['Status']
+        current_status = row.get('Status', 'Aktiv')
         
         if current_status != "Pausiert":
             st.write("Setze die Mitgliedschaft temporär aus (z. B. wegen Urlaub oder Verletzung).")
@@ -376,16 +370,17 @@ if selected_member_str:
                 submit_pause = st.form_submit_button("⏸️ Mitgliedschaft pausieren & in Cloud speichern")
                 
                 if submit_pause:
-                    df_members.at[m_idx, "Status"] = "Pausiert"
-                    df_members.at[m_idx, "Pausiert_Bis"] = str(pause_end)
-                    
                     timestamp_str = datetime.date.today().strftime("%d.%m.%Y")
-                    current_notes = str(df_members.at[m_idx, "Notizen"]) if pd.notna(df_members.at[m_idx, "Notizen"]) and str(df_members.at[m_idx, "Notizen"]).strip() != 'nan' else ""
+                    current_notes = str(row.get("Notizen", "")) if pd.notna(row.get("Notizen")) and str(row.get("Notizen")).strip() != 'nan' else ""
                     new_note = f"[{timestamp_str}] Pausiert von {pause_start} bis {pause_end}. Grund: {pause_reason}".strip()
-                    df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
+                    final_notes = f"{current_notes} | {new_note}" if current_notes else new_note
                     
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                    st.cache_data.clear()
+                    update_data = {
+                        "Status": "Pausiert",
+                        "Pausiert_Bis": str(pause_end),
+                        "Notizen": final_notes
+                    }
+                    supabase.table("Mitglieder").update(update_data).eq("Mitglieder_ID", sel_id).execute()
                     
                     st.success(f"Mitgliedschaft für {row['Name']} wurde bis zum {pause_end.strftime('%d.%m.%Y')} pausiert!")
                     st.rerun()
@@ -393,16 +388,17 @@ if selected_member_str:
             st.success(f"⚠️ Diese Mitgliedschaft ist aktuell **pausiert** (bis voraussichtlich {row.get('Pausiert_Bis', 'unbekannt')}).")
             
             if st.button("▶️ Mitgliedschaft jetzt reaktivieren (Status in Cloud auf 'Aktiv' setzen)"):
-                df_members.at[m_idx, "Status"] = "Aktiv"
-                df_members.at[m_idx, "Pausiert_Bis"] = "-"
-                
                 timestamp_str = datetime.date.today().strftime("%d.%m.%Y")
-                current_notes = str(df_members.at[m_idx, "Notizen"]) if pd.notna(df_members.at[m_idx, "Notizen"]) and str(df_members.at[m_idx, "Notizen"]).strip() != 'nan' else ""
+                current_notes = str(row.get("Notizen", "")) if pd.notna(row.get("Notizen")) and str(row.get("Notizen")).strip() != 'nan' else ""
                 new_note = f"[{timestamp_str}] Reaktiviert und Status auf 'Aktiv' gesetzt."
-                df_members.at[m_idx, "Notizen"] = f"{current_notes} | {new_note}" if current_notes else new_note
+                final_notes = f"{current_notes} | {new_note}" if current_notes else new_note
                 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
-                st.cache_data.clear()
+                update_data = {
+                    "Status": "Aktiv",
+                    "Pausiert_Bis": "-",
+                    "Notizen": final_notes
+                }
+                supabase.table("Mitglieder").update(update_data).eq("Mitglieder_ID", sel_id).execute()
                 
                 st.success(f"Mitgliedschaft für {row['Name']} wurde erfolgreich reaktiviert!")
                 st.rerun()
