@@ -29,6 +29,12 @@ if df_members.empty:
     st.warning("Keine Mitglieder in der Cloud gefunden. Bitte lege zuerst Mitglieder an.")
     st.stop()
 
+# --- SAUBERE LÖSUNG: Hilfsspalte "Name" für das Dropdown ---
+if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+    df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
+else:
+    df_members["Name"] = "Unbekannt"
+
 # --- MITGLIED AUSWÄHLEN ---
 member_options = df_members.apply(
     lambda x: f"{x['Mitglieder_ID']} | {x['Name']}", 
@@ -145,7 +151,7 @@ with tab1:
                 uebung = str(row["Uebung"]).strip()
                 if uebung:
                     new_rows.append({
-                        "Name": sel_name,  # Wichtig für die Zuordnung in der zentralen Historie
+                        "Name": sel_name,
                         "Datum": date_str,
                         "Block": str(row["Block"]),
                         "Modus": str(row["Modus"]),
@@ -173,14 +179,10 @@ with tab1:
 # ================= TAB 2: VORLAGEN VERWALTEN =================
 with tab2:
     st.subheader("⚙️ Eigene Trainingsvorlagen erstellen & bearbeiten")
-    st.write("Hier kannst du wiederkehrende Zirkel (z.B. EMOM-Formate) oder Kraftpläne einmalig anlegen und unter einem Namen abspeichern.")
-
     new_template_name = st.text_input("Name der neuen Vorlage (z.B. Freitag EMOM & Core):", value="")
     
     template_builder_data = [
         {"Block": "Zirkel", "Modus": "EMOM 15 Min", "Uebung": "Kreuzheben", "Sätze/Runden": "1 Min.", "Wiederholungen/Distanz": "5 Wd.", "Gewicht": "90 kg", "Pause_Belastung": "Rest der Minute"},
-        {"Block": "Zirkel", "Modus": "EMOM 15 Min", "Uebung": "Airbike", "Sätze/Runden": "1 Min.", "Wiederholungen/Distanz": "200m", "Gewicht": "High Pace", "Pause_Belastung": "Rest der Minute"},
-        {"Block": "Zirkel", "Modus": "EMOM 15 Min", "Uebung": "Burpees", "Sätze/Runden": "1 Min.", "Wiederholungen/Distanz": "10 Wd.", "Gewicht": "Bodyweight", "Pause_Belastung": "Rest der Minute"},
     ]
     
     edited_template_df = st.data_editor(
@@ -190,43 +192,41 @@ with tab2:
         key="template_builder_editor"
     )
 
-    col_save, col_del = st.columns(2)
-    with col_save:
-        if st.button("💾 Vorlage dauerhaft in Cloud speichern"):
-            if not new_template_name.strip():
-                st.error("Bitte gib einen Namen für die Vorlage an.")
-            else:
-                t_rows = []
-                for _, r in edited_template_df.iterrows():
-                    if str(r["Uebung"]).strip():
-                        t_rows.append({
-                            "Template_Name": new_template_name.strip(),
-                            "Block": str(r["Block"]),
-                            "Modus": str(r["Modus"]),
-                            "Uebung": str(r["Uebung"]),
-                            "Sätze/Runden": str(r["Sätze/Runden"]),
-                            "Wiederholungen/Distanz": str(r["Wiederholungen/Distanz"]),
-                            "Gewicht": str(r["Gewicht"]),
-                            "Pause_Belastung": str(r["Pause_Belastung"])
-                        })
-                df_new_t = pd.DataFrame(t_rows)
+    if st.button("💾 Vorlage dauerhaft in Cloud speichern"):
+        if not new_template_name.strip():
+            st.error("Bitte gib einen Namen für die Vorlage an.")
+        else:
+            t_rows = []
+            for _, r in edited_template_df.iterrows():
+                if str(r["Uebung"]).strip():
+                    t_rows.append({
+                        "Template_Name": new_template_name.strip(),
+                        "Block": str(r["Block"]),
+                        "Modus": str(r["Modus"]),
+                        "Uebung": str(r["Uebung"]),
+                        "Sätze/Runden": str(r["Sätze/Runden"]),
+                        "Wiederholungen/Distanz": str(r["Wiederholungen/Distanz"]),
+                        "Gewicht": str(r["Gewicht"]),
+                        "Pause_Belastung": str(r["Pause_Belastung"])
+                    })
+            df_new_t = pd.DataFrame(t_rows)
+            
+            try:
+                df_all_t = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
+                df_all_t = df_all_t.dropna(how="all")
+            except Exception:
+                df_all_t = pd.DataFrame()
                 
-                try:
-                    df_all_t = conn.read(spreadsheet=SHEET_URL, worksheet="Vorlagen", ttl=0)
-                    df_all_t = df_all_t.dropna(how="all")
-                except Exception:
-                    df_all_t = pd.DataFrame()
-                    
-                if not df_all_t.empty and "Template_Name" in df_all_t.columns:
-                    df_all_t = df_all_t[df_all_t["Template_Name"] != new_template_name.strip()]
-                    df_all_t = pd.concat([df_all_t, df_new_t], ignore_index=True)
-                else:
-                    df_all_t = df_new_t
-                    
-                conn.update(spreadsheet=SHEET_URL, worksheet="Vorlagen", data=df_all_t)
-                st.cache_data.clear()
-                st.success(f"Vorlage '{new_template_name}' erfolgreich in der Cloud gespeichert!")
-                st.rerun()
+            if not df_all_t.empty and "Template_Name" in df_all_t.columns:
+                df_all_t = df_all_t[df_all_t["Template_Name"] != new_template_name.strip()]
+                df_all_t = pd.concat([df_all_t, df_new_t], ignore_index=True)
+            else:
+                df_all_t = df_new_t
+                
+            conn.update(spreadsheet=SHEET_URL, worksheet="Vorlagen", data=df_all_t)
+            st.cache_data.clear()
+            st.success(f"Vorlage '{new_template_name}' erfolgreich in der Cloud gespeichert!")
+            st.rerun()
 
     st.markdown("---")
     st.subheader("Vorhandene Vorlagen löschen")
@@ -245,8 +245,6 @@ with tab2:
             st.cache_data.clear()
             st.success(f"Vorlage '{del_template_choice}' gelöscht.")
             st.rerun()
-    else:
-        st.info("Keine gespeicherten Vorlagen in der Cloud vorhanden.")
 
 
 # ================= TAB 3: DIAGRAMM & VERLAUF =================
