@@ -24,11 +24,13 @@ if "password_correct" not in st.session_state or not st.session_state["password_
 if "step" not in st.session_state: 
     st.session_state.step = 1
 
-for key in ["agb_ok", "dsgvo_ok", "anamnese_bestaetigt"]:
+# Status-Flags für sämtliche Zustimmungen
+status_keys = ["agb_ok", "dsgvo_ok", "risiko_ok", "haftung_ok", "wahrheit_ok"]
+for key in status_keys:
     if key not in st.session_state: 
         st.session_state[key] = False
 
-# Anamnese-Schlüssel sauber initialisieren
+# Anamnese-Schlüssel initialisieren
 health_keys = [
     "Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen",
     "Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden",
@@ -48,11 +50,11 @@ for key, val in defaults.items():
         st.session_state[key] = val
 
 # -------------------------------------------------------------------------
-# SCHRITT 1: ANMELDUNG
+# SCHRITT 1: ANMELDUNG (DATEN, TARIF, AGB, DATENSCHUTZ, UNTERSCHRIFT)
 # -------------------------------------------------------------------------
 if st.session_state.step == 1:
     st.title("📝 Hinkelfit – Mitgliedschaftsanmeldung")
-    st.subheader("👤 Deine Daten")
+    st.subheader("👤 Persönliche Daten")
     col1, col2 = st.columns(2)
     with col1:
         st.session_state.vorname = st.text_input("Vorname *", value=st.session_state.vorname)
@@ -84,14 +86,14 @@ if st.session_state.step == 1:
         default=st.session_state.ziele
     )
 
-    st.subheader("📄 Vertrag & Zustimmung")
-    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können von dir bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
+    st.subheader("📄 Vertrag & Allgemeine Bedingungen")
+    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
     
     if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"):
         st.session_state.agb_ok = True
     
-    st.info("""**Datenschutz:** Ich willige ausdrücklich ein, dass meine personenbezogenen Daten zur Verwaltung der Mitgliedschaft durch Hinkelfit verarbeitet werden.""")
-    if st.button("✅ Einwilligung Datenverarbeitung akzeptieren" if not st.session_state.dsgvo_ok else "Datenverarbeitung akzeptiert ✅", key="btn_dsgvo"):
+    st.info("""**Datenschutz (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher Google Drive. Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
+    if st.button("✅ Datenschutzerklärung akzeptieren" if not st.session_state.dsgvo_ok else "Datenschutz akzeptiert ✅", key="btn_dsgvo"):
         st.session_state.dsgvo_ok = True
 
     st.subheader("🖋️ Digitale Unterschrift")
@@ -110,7 +112,7 @@ if st.session_state.step == 1:
             st.rerun()
 
 # -------------------------------------------------------------------------
-# SCHRITT 2: ANAMNESE
+# SCHRITT 2: ANAMNESE & RECHTLICHE ERKLÄRUNGEN
 # -------------------------------------------------------------------------
 elif st.session_state.step == 2:
     st.title("🩺 Anamnesebogen & Gesundheitsstatus")
@@ -123,58 +125,58 @@ elif st.session_state.step == 2:
         st.session_state[k] = not st.session_state[k]
     
     st.subheader("1. Herz-Kreislauf-System und Gefäße")
-    st.write("Leidest du unter Vorerkrankungen des Herz-Kreislauf-Systems?")
+    st.write("Leidet das Mitglied unter Vorerkrankungen des Herz-Kreislauf-Systems?")
     for k in ["Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen"]:
         if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
             btn_toggle(k)
     cardio_other = st.text_input("Sonstiges / Weitere Details zu Herz-Kreislauf:")
 
     st.subheader("2. Bewegungsapparat, Gelenke und Wirbelsäule")
-    st.write("Hast du Beschwerden im Bereich des Bewegungsapparates?")
+    st.write("Hat das Mitglied Beschwerden im Bereich des Bewegungsapparates?")
     for k in ["Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden"]:
         if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
             btn_toggle(k)
     ms_other = st.text_input("Sonstiges / Weitere Details zum Bewegungsapparat:")
 
     st.subheader("3. Stoffwechsel, Organe und Atmung")
-    st.write("Liegen bei dir Stoffwechsel- oder Atemwegserkrankungen vor?")
-    for k in ["Diabetes", "Asthma", "Krämpfe", "Epilepsie", "Organerkrankungen"]:
+    st.write("Liegen beim Mitglied Stoffwechsel- oder Atemwegserkrankungen vor?")
+    for k in ["Diabetes", "Asthma", "Neigung zu Krämpfen", "Epilepsie", "Organerkrankungen"]:
         if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
             btn_toggle(k)
     met_other = st.text_input("Sonstiges / Weitere Details zu Stoffwechsel & Organen:")
 
     st.subheader("4. Operationen, Verletzungen und Medikamente")
-    surgeries_meds = st.text_area("Gab es in den letzten 5 Jahren Operationen oder schwerwiegende Verletzungen? Nimmst du regelmäßige Medikamente ein?")
+    surgeries_meds = st.text_area("Gab es in den letzten 5 Jahren Operationen oder schwerwiegende Verletzungen? Nimmt das Mitglied regelmäßige Medikamente ein?")
     
     st.markdown("---")
-    st.subheader("6. Risiko- und Haftungserklärung")
-    st.info("""**1. Gesundheitliche Eigenverantwortung & Wahrheitsgemäße Angaben**
-* **Eigenverantwortung:** Du versicherst, dass du gesund bist und keine gesundheitlichen Einschränkungen vorliegen, die einer Teilnahme am Training entgegenstehen.
-* **Wahrheitspflicht:** Alle Angaben im Anamnesebogen wurden vollständig und wahrheitsgemäß gemacht. Veränderungen des Gesundheitszustandes teilst du mir vor jedem Training unaufgefordert mit.
-* **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtest du dich, vor der Teilnahme einen Arzt zu konsultieren.
+    st.subheader("5. Wahrheitspflicht")
+    st.info("""**Wahrheitsgemäße Angaben:**\n
+• **Wahrheitspflicht:** Das Mitglied versichert, dass alle Angaben im Anamnesebogen vollständig und wahrheitsgemäß gemacht wurden. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.\n
+• **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtet sich das Mitglied, vor der Teilnahme einen Arzt zu konsultieren.""")
+    if st.button("✅ Wahrheitspflicht bestätigen" if not st.session_state.wahrheit_ok else "Wahrheitspflicht bestätigt ✅", key="btn_wahrheit"):
+        st.session_state.wahrheit_ok = True
 
-**2. Risikoaufklärung**
-* **Körperliche Belastung:** Dir ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.
-* **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.
-* **Sofortiger Trainingsstopp:** Du verpflichtest dich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und mich zu informieren.
+    st.subheader("6. Risikoaufklärung")
+    st.info("""**Risikoaufklärung:**\n
+• **Körperliche Belastung:** Dem Mitglied ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.\n
+• **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.\n
+• **Sofortiger Trainingsstopp:** Das Mitglied verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.""")
+    if st.button("✅ Risikoaufklärung bestätigen" if not st.session_state.risiko_ok else "Risikoaufklärung bestätigt ✅", key="btn_risiko"):
+        st.session_state.risiko_ok = True
 
-**3. Haftungsbeschränkung**
-* **Körperschäden:** Ich hafte unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.
-* **Sach- und Vermögensschäden:** Für sonstige Schäden hafte ich nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.
-* **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.
+    st.subheader("7. Haftungsausschluss")
+    st.info("""**Haftungsbeschränkung:**\n
+• **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.\n
+• **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.\n
+• **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.\n
+• **Befolgen von Anweisungen:** Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
+    if st.button("✅ Haftungsausschluss bestätigen" if not st.session_state.haftung_ok else "Haftungsausschluss bestätigt ✅", key="btn_haftung"):
+        st.session_state.haftung_ok = True
 
-**4. Befolgen von Anweisungen**
-* Meinen Anweisungen bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
-
-    st.info("""**Einwilligung in die Datenverarbeitung (Art. 9 DSGVO):**
-Ich willige ausdrücklich ein, dass meine gesundheitsbezogenen Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte (PDF) erfolgt im geschützten Cloud-Speicher Google Drive (Google Ireland Ltd.). Diese Einwilligung kann ich jederzeit mit Wirkung für die Zukunft widerrufen.""")
-    
-    if st.button("✅ Anamnese wahrheitsgemäß bestätigt" if not st.session_state.anamnese_bestaetigt else "Bestätigt ✅", key="b_ana"):
-        st.session_state.anamnese_bestaetigt = True
-
+    st.markdown("---")
     if st.button("🚀 Jetzt verbindlich anmelden"):
-        if not st.session_state.anamnese_bestaetigt:
-            st.error("⚠️ Bitte bestätige zuerst die Wahrheitspflicht & Risikoaufklärung!")
+        if not (st.session_state.wahrheit_ok and st.session_state.risiko_ok and st.session_state.haftung_ok):
+            st.error("⚠️ Bitte bestätige separat die Wahrheitspflicht, die Risikoaufklärung und den Haftungsausschluss!")
         else:
             with st.spinner("Verarbeite Anmeldung..."):
                 # Hier läuft die Logik (Google Sheets/E-Mail/Drive)...
@@ -185,7 +187,7 @@ elif st.session_state.step == 3:
     st.balloons()
     st.success("🎉 Registrierung erfolgreich!")
     if st.button("🔄 Neues Mitglied"):
-         for key in ["step", "agb_ok", "dsgvo_ok", "anamnese_bestaetigt"] + health_keys: 
+         for key in ["step", "agb_ok", "dsgvo_ok", "risiko_ok", "haftung_ok", "wahrheit_ok"] + health_keys: 
              st.session_state[key] = (1 if key == "step" else False)
          st.session_state.vorname = ""
          st.session_state.nachname = ""
