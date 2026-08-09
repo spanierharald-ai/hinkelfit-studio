@@ -297,7 +297,7 @@ with tab1:
 
         teilnehmer = st.multiselect(
             f"Mitglieder hinzufügen (Optional - Filter: {termin_art})", 
-            eligible_members["Name"].tolist() if not eligible_members.empty else []
+            (eligible_members["Vorname"] + " " + eligible_members["Nachname"]).tolist() if not eligible_members.empty else []
         )
         submitted = st.form_submit_button("Neuen Termin in die Cloud speichern")
 
