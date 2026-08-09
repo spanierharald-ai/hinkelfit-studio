@@ -16,8 +16,16 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 try:
     df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
     df_members = df_members.dropna(how="all")
-except Exception:
+except Exception as e:
+    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     df_members = pd.DataFrame()
+
+if not df_members.empty:
+    # --- SAUBERE LÖSUNG: Hilfsspalte "Name" für die Abgleiche anlegen ---
+    if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+        df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
+    else:
+        df_members["Name"] = "Unbekannt"
 
 try:
     df_termine = conn.read(spreadsheet=SHEET_URL, worksheet="Termine", ttl=0)
@@ -67,7 +75,7 @@ with tab1:
                 already_checked_names = []
             
             for t_idx, t_row in df_day_termine.iterrows():
-                termin_titel = t_row.get("Art", "Training / Kurs") # Wurde von "Titel" auf "Art" angepasst, da in Termine.csv so benannt
+                termin_titel = t_row.get("Art", "Training / Kurs") 
                 uhrzeit = t_row.get("Uhrzeit", "00:00")
                 teilnehmer_raw = str(t_row.get("Teilnehmer", ""))
                 
@@ -98,7 +106,6 @@ with tab1:
                         submit_session = st.form_submit_button(f"💾 Anwesenheit für '{termin_titel}' in Cloud speichern")
                         
                         if submit_session:
-                            # Wir arbeiten mit dem aktuellen DataFrame und modifizieren ihn
                             df_att_new = df_att.copy()
                             if df_att_new.empty:
                                 df_att_new = pd.DataFrame(columns=["Datum", "Mitglieder_ID", "Name"])
@@ -156,7 +163,8 @@ with tab2:
             st.subheader("⚠️ Noch nie eingetragen:")
             if not never_seen.empty:
                 for _, row in never_seen.iterrows():
-                    st.write(f"- {row['Name']} (Beitritt: {row['Beitrittsdatum']})")
+                    beitritt = row.get('Datum', 'Unbekannt')
+                    st.write(f"- {row['Name']} (Beitritt: {beitritt})")
             else:
                 st.success("Alle aktiven Mitglieder waren mindestens einmal da.")
                 
