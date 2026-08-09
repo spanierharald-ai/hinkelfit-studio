@@ -12,13 +12,22 @@ from PIL import Image
 import pandas as pd
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 st.set_page_config(page_title="Hinkelfit | Anmeldung", page_icon="📝", layout="wide")
 
 if "password_correct" not in st.session_state or not st.session_state["password_correct"]:
     st.warning("🔒 Bitte logge dich zuerst ein.")
     st.stop()
+
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # --- HELPER: RESET ---
 def reset_app():
@@ -175,7 +184,7 @@ elif st.session_state.step == 2:
         if not (st.session_state.wahrheit_ok and st.session_state.risiko_ok and st.session_state.haftung_ok):
             st.error("⚠️ Bitte bestätige separat die Wahrheitspflicht, die Risikoaufklärung und den Haftungsausschluss!")
         else:
-            with st.spinner("Verarbeite Anmeldung, speichere Daten und versende E-Mail..."):
+            with st.spinner("Verarbeite Anmeldung, speichere Daten in Supabase und versende E-Mail..."):
                 try:
                     cv_list = [c for c in ["Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen"] if st.session_state.get(c)]
                     if cardio_other: cv_list.append(cardio_other)
@@ -189,19 +198,18 @@ elif st.session_state.step == 2:
                         all_notes.append(f"OPs/Meds: {surgeries_meds}")
                     warnhinweis = ", ".join(all_notes)
 
-                    # Google Sheets Update
-                    conn = st.connection("gsheets", type=GSheetsConnection)
-                    SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1985436937#gid=1985436937"
-                    df = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
+                    # --- DATEN IN SUPABASE SPEICHERN ---
+                    # 1. Zählen wie viele Mitglieder es gibt, um die nächste ID zu berechnen
+                    response = supabase.table("Mitglieder").select("Mitglieder_ID").execute()
+                    bisherige_mitglieder = len(response.data)
+                    neue_id = f"HF-{(bisherige_mitglieder + 1):03d}"
 
-                    # Direkt saubere ID generieren basierend auf der aktuellen Anzahl der Mitglieder
-                    neue_id = f"HF-{(len(df) + 1):03d}"
-
-                    neues_mitglied = pd.DataFrame([{
-                        "Mitglieder_ID": neue_id,              # <-- Direkt sauber befüllt
-                        "Status": "Aktiv",                     # <-- Direkt sauber befüllt
-                        "Kündigungs_Eingang": "",              # <-- Direkt sauber befüllt
-                        "Vertrags_Ende": "",                   # <-- Direkt sauber befüllt
+                    # 2. Dictionary mit den neuen Daten bauen
+                    neues_mitglied = {
+                        "Mitglieder_ID": neue_id,
+                        "Status": "Aktiv",
+                        "Kündigungs_Eingang": "",
+                        "Vertrags_Ende": "",
                         "Datum": datetime.now().strftime("%d.%m.%Y"),
                         "Vorname": st.session_state.vorname, 
                         "Nachname": st.session_state.nachname,
@@ -212,11 +220,12 @@ elif st.session_state.step == 2:
                         "Tarif": st.session_state.tarif, 
                         "Ziele": ", ".join(st.session_state.ziele), 
                         "Gesundheits_Notizen": warnhinweis
-                    }])
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=pd.concat([df, neues_mitglied], ignore_index=True))
+                    }
 
-                    # PDF generieren
-                    # Variablen vorab definieren
+                    # 3. Den Datensatz in die Supabase Tabelle "Mitglieder" hochladen
+                    supabase.table("Mitglieder").insert(neues_mitglied).execute()
+
+                    # --- PDF GENERIEREN ---
                     telefon_str = st.session_state.telefon if st.session_state.telefon else "Keine Angabe"
                     geburtsdatum_str = st.session_state.geburtsdatum if st.session_state.geburtsdatum else "Keine Angabe"
                     heute_str = datetime.now().strftime('%d.%m.%Y')
@@ -232,7 +241,6 @@ elif st.session_state.step == 2:
 
                     sig_html = f'<img src="data:image/png;base64,{img_base64}" style="margin-top: 10px; border: 1px solid #ccc; width: 250px;">' if img_base64 else ""
 
-                    # HTML-Struktur mit .format() – absolut fehlerfrei bei CSS-Klammern
                     html_template = """
                     <html>
                     <head>
@@ -288,7 +296,7 @@ elif st.session_state.step == 2:
                     pdf_bytes = HTML(string=html_contract).write_pdf()
                     st.session_state.pdf_bytes = pdf_bytes
 
-                    # E-Mail Versand mit Anhängen und Logo
+                    # --- E-MAIL VERSAND ---
                     sender = st.secrets["email"]["absender"]
                     msg = MIMEMultipart("related")
                     msg['From'] = sender
@@ -297,10 +305,8 @@ elif st.session_state.step == 2:
                     msg['Subject'] = "Deine Unterlagen bei Hinkelfit"
                     
                     body = MIMEMultipart("alternative")
-                    # Firmenname Hinkelfit zur reinen Text-Version hinzugefügt
                     body.attach(MIMEText(f"Hallo {st.session_state.vorname},\n\nvielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.\n\nSportliche Grüße\nHarald\nHinkelfit", 'plain'))
                     
-                    # Firmenname Hinkelfit zur HTML-Version hinzugefügt, direkt über dem Logo
                     html_body = f"<html><body><p>Hallo {st.session_state.vorname},</p><p>vielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.</p><br><p>Sportliche Grüße<br>Harald<br><b>Hinkelfit</b></p><br><img src='cid:logo' style='width:200px;' alt='Hinkelfit Logo'></body></html>"
                     body.attach(MIMEText(html_body, 'html'))
                     msg.attach(body)
@@ -310,6 +316,7 @@ elif st.session_state.step == 2:
                         with open(logo_path, "rb") as f:
                             logo = MIMEImage(f.read())
                             logo.add_header('Content-ID', '<logo>')
+                            logo.add_header('Content-Disposition', 'inline', filename="logo.jpg")
                             msg.attach(logo)
                     
                     pdf_liste = ["Allgemeine Geschäftsbedingungen.pdf", "Datenschutzerklärung.pdf", "Ernährungskompass.pdf", "Hausordnung.pdf", "Willkommen.pdf"]
@@ -341,7 +348,7 @@ elif st.session_state.step == 2:
 # SCHRITT 3: ERFOLG
 # -------------------------------------------------------------------------
 elif st.session_state.step == 3:
-    st.success("🎉 Anmeldung erfolgreich! Die Daten wurden gespeichert, die E-Mail mit allen Anhängen wurde versendet.")
+    st.success("🎉 Anmeldung erfolgreich! Die Daten wurden in Supabase gespeichert, die E-Mail mit allen Anhängen wurde versendet.")
     st.download_button("📥 Vertrag lokal speichern", data=st.session_state.pdf_bytes, file_name="Vertrag.pdf", mime="application/pdf")
     if st.button("🔄 Neues Mitglied anlegen"):
         reset_app()
