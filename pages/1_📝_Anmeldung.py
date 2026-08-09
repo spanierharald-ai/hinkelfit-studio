@@ -6,8 +6,6 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
-from email.mime.base import MIMEBase
-from email import encoders
 from weasyprint import HTML
 from PIL import Image
 import pandas as pd
@@ -43,6 +41,7 @@ for key in ["agb_ok", "dsgvo_ok", "risiko_ok", "haftung_ok", "wahrheit_ok"]:
 # -------------------------------------------------------------------------
 if st.session_state.step == 1:
     st.title("📝 Hinkelfit – Mitgliedschaftsanmeldung")
+    st.subheader("👤 Persönliche Daten")
     col1, col2 = st.columns(2)
     with col1:
         st.session_state.vorname = st.text_input("Vorname *", value=st.session_state.get("vorname", ""))
@@ -53,17 +52,29 @@ if st.session_state.step == 1:
         st.session_state.telefon = st.text_input("Telefonnummer", value=st.session_state.get("telefon", ""))
         st.session_state.geburtsdatum = st.text_input("Geburtsdatum", value=st.session_state.get("geburtsdatum", ""))
 
-    st.session_state.tarif = st.selectbox("Wähle deinen Tarif:", ["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"])
-    st.session_state.ziele = st.multiselect("Was sind deine Hauptziele?", ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], default=st.session_state.get("ziele", []))
+    st.subheader("🏋️ Tarif & Ziele")
+    tarife = ["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"]
+    if st.session_state.get("tarif") not in tarife: st.session_state.tarif = tarife[0]
+    st.session_state.tarif = st.selectbox("Wähle deinen Tarif:", tarife, index=tarife.index(st.session_state.tarif))
+    st.session_state.ziele = st.multiselect("Was sind deine Hauptziele bei Hinkelfit?", ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], default=st.session_state.get("ziele", []))
 
+    st.subheader("📄 Vertrag & Allgemeine Bedingungen")
+    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
     if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"): st.session_state.agb_ok = True
+
+    st.info("""**Datenschutz (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher. Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
     if st.button("✅ Datenschutzerklärung akzeptieren" if not st.session_state.dsgvo_ok else "Datenschutz akzeptiert ✅", key="btn_dsgvo"): st.session_state.dsgvo_ok = True
 
+    st.subheader("🖋️ Digitale Unterschrift")
     canvas_result = st_canvas(fill_color="#fff", stroke_width=3, stroke_color="#000", background_color="#eee", height=200, width=700, drawing_mode="freedraw", key="canvas")
 
     if st.button("🚀 Vertrag unterzeichnen & zum Anamnesebogen"):
         if not (st.session_state.vorname and st.session_state.nachname and st.session_state.email):
-            st.error("⚠️ Bitte alle Pflichtfelder ausfüllen!")
+            st.error("⚠️ Bitte Pflichtfelder (Vorname, Nachname, E-Mail) ausfüllen!")
+        elif not (st.session_state.agb_ok and st.session_state.dsgvo_ok):
+            st.error("⚠️ Bitte akzeptiere zuerst AGB und Datenschutz!")
+        elif canvas_result.image_data is None:
+            st.error("⚠️ Bitte unterschreibe!")
         else:
             st.session_state.signature = canvas_result.image_data
             st.session_state.step = 2
@@ -74,90 +85,144 @@ if st.session_state.step == 1:
 # -------------------------------------------------------------------------
 elif st.session_state.step == 2:
     st.title("🩺 Anamnesebogen & Gesundheitsstatus")
-    if st.button("⬅️ Zurück"): st.session_state.step = 1; st.rerun()
+    if st.button("⬅️ Zurück zur Anmeldung"): st.session_state.step = 1; st.rerun()
     
-    for k in health_keys:
-        if st.button(f"{k} {'✅' if st.session_state[k] else ''}", key=f"b_{k}"): st.session_state[k] = not st.session_state[k]
+    def btn_toggle(k): st.session_state[k] = not st.session_state[k]
     
-    surgeries_meds = st.text_area("Operationen (letzte 5 Jahre) oder Medikamente?")
+    st.subheader("1. Herz-Kreislauf-System und Gefäße")
+    st.write("Leidest du unter Vorerkrankungen des Herz-Kreislauf-Systems?")
+    for k in ["Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen"]:
+        if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): btn_toggle(k)
+    cardio_other = st.text_input("Sonstiges / Weitere Details zu Herz-Kreislauf:")
+
+    st.subheader("2. Bewegungsapparat, Gelenke und Wirbelsäule")
+    st.write("Hast du Beschwerden im Bereich des Bewegungsapparates?")
+    for k in ["Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden"]:
+        if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): btn_toggle(k)
+    ms_other = st.text_input("Sonstiges / Weitere Details zum Bewegungsapparat:")
+
+    st.subheader("3. Stoffwechsel, Organe und Atmung")
+    st.write("Liegen bei dir Stoffwechsel- oder Atemwegserkrankungen vor?")
+    for k in ["Diabetes", "Asthma", "Neigung zu Krämpfen", "Epilepsie", "Organerkrankungen"]:
+        if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): btn_toggle(k)
+    met_other = st.text_input("Sonstiges / Weitere Details zu Stoffwechsel & Organen:")
+
+    st.subheader("4. Operationen, Verletzungen und Medikamente")
+    surgeries_meds = st.text_area("Gab es in den letzten 5 Jahren Operationen oder schwerwiegende Verletzungen? Nimmst du regelmäßige Medikamente ein, die das Training beeinträchtigen?")
     
-    st.subheader("6. Risiko- und Haftungserklärung")
-    st.info("""**1. Gesundheitliche Eigenverantwortung & Wahrheitsgemäße Angaben**
-* **Eigenverantwortung:** Der Kunde versichert, dass er gesund ist und keine gesundheitlichen Einschränkungen vorliegen, die einer Teilnahme am Training entgegenstehen.
-* **Wahrheitspflicht:** Alle Angaben im Anamnesebogen wurden vollständig und wahrheitsgemäß gemacht. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.
-* **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtet sich der Kunde, vor der Teilnahme einen Arzt zu konsultieren.
-
-**2. Risikoaufklärung**
-* **Körperliche Belastung:** Dem Kunden ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.
-* **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.
-* **Sofortiger Trainingsstopp:** Der Kunde verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.
-
-**3. Haftungsbeschränkung**
-* **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.
-* **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.
-* **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.
-
-**4. Befolgen von Anweisungen**
-* Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
-
-    st.info("""**Einwilligung in die Datenverarbeitung (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher. Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
-
+    st.markdown("---")
+    
+    st.subheader("5. Wahrheitspflicht")
+    st.info("""**Wahrheitsgemäße Angaben:**\n
+• **Wahrheitspflicht:** Das Mitglied versichert, dass alle Angaben im Anamnesebogen vollständig und wahrheitsgemäß gemacht wurden. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.\n
+• **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtet sich das Mitglied, vor der Teilnahme einen Arzt zu konsultieren.""")
     if st.button("✅ Wahrheitspflicht bestätigen" if not st.session_state.wahrheit_ok else "Wahrheitspflicht bestätigt ✅", key="btn_wahrheit"): st.session_state.wahrheit_ok = True
+
+    st.subheader("6. Risikoaufklärung")
+    st.info("""**Risikoaufklärung:**\n
+• **Körperliche Belastung:** Dem Mitglied ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.\n
+• **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.\n
+• **Sofortiger Trainingsstopp:** Das Mitglied verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.""")
     if st.button("✅ Risikoaufklärung bestätigen" if not st.session_state.risiko_ok else "Risikoaufklärung bestätigt ✅", key="btn_risiko"): st.session_state.risiko_ok = True
+
+    st.subheader("7. Haftungsausschluss")
+    st.info("""**Haftungsbeschränkung:**\n
+• **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.\n
+• **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.\n
+• **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.\n
+• **Befolgen von Anweisungen:** Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
     if st.button("✅ Haftungsausschluss bestätigen" if not st.session_state.haftung_ok else "Haftungsausschluss bestätigt ✅", key="btn_haftung"): st.session_state.haftung_ok = True
 
+    st.markdown("---")
     if st.button("🚀 Jetzt verbindlich anmelden"):
         if not (st.session_state.wahrheit_ok and st.session_state.risiko_ok and st.session_state.haftung_ok):
             st.error("⚠️ Bitte bestätige separat die Wahrheitspflicht, die Risikoaufklärung und den Haftungsausschluss!")
         else:
-            with st.spinner("Erstelle Unterlagen..."):
-                # PDF
-                html = f"<h1>Mitgliedschaft: {st.session_state.vorname} {st.session_state.nachname}</h1>"
-                pdf_bytes = HTML(string=html).write_pdf()
-                st.session_state.pdf_bytes = pdf_bytes
-                
-                # E-Mail mit Logo
-                sender = st.secrets["email"]["absender"]
-                msg = MIMEMultipart("related")
-                msg['From'] = sender
-                msg['To'] = st.session_state.email
-                msg['Bcc'] = sender
-                msg['Subject'] = "Deine Unterlagen bei Hinkelfit"
-                
-                body = MIMEMultipart("alternative")
-                body.attach(MIMEText("Hallo, anbei deine Unterlagen.", 'plain'))
-                html_body = "<html><body><p>Hallo,</p><img src='cid:logo'></body></html>"
-                body.attach(MIMEText(html_body, 'html'))
-                msg.attach(body)
-                
-                # Logo anhängen
-                with open("pdfs/Logo heller Hintergrund.jpg", "rb") as f:
-                    logo = MIMEImage(f.read())
-                    logo.add_header('Content-ID', '<logo>')
-                    msg.attach(logo)
-                
-                # PDFs anhängen
-                for p in ["Allgemeine Geschäftsbedingungen.pdf", "Datenschutzerklärung.pdf", "Ernährungskompass.pdf", "Hausordnung.pdf", "Willkommen.pdf"]:
-                    with open(os.path.join("pdfs", p), "rb") as f:
-                        part = MIMEApplication(f.read(), _subtype="pdf")
-                        part.add_header('Content-Disposition', 'attachment', filename=p)
-                        msg.attach(part)
-                
-                # Vertrag als PDF
-                pdf_part = MIMEApplication(pdf_bytes, _subtype="pdf")
-                pdf_part.add_header('Content-Disposition', 'attachment', filename="Vertrag.pdf")
-                msg.attach(pdf_part)
-                
-                server = smtplib.SMTP(st.secrets["email"]["smtp_server"], int(st.secrets["email"]["smtp_port"]))
-                server.starttls(); server.login(sender, st.secrets["email"]["passwort"])
-                server.send_message(msg); server.quit()
-                
-                st.session_state.step = 3
-                st.rerun()
+            with st.spinner("Verarbeite Anmeldung, speichere Daten und versende E-Mail..."):
+                try:
+                    cv_list = [c for c in ["Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen"] if st.session_state.get(c)]
+                    if cardio_other: cv_list.append(cardio_other)
+                    ms_list = [c for c in ["Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden"] if st.session_state.get(c)]
+                    if ms_other: ms_list.append(ms_other)
+                    met_list = [c for c in ["Diabetes", "Asthma", "Neigung zu Krämpfen", "Epilepsie", "Organerkrankungen"] if st.session_state.get(c)]
+                    if met_other: met_list.append(met_other)
+                    
+                    all_notes = cv_list + ms_list + met_list
+                    if surgeries_meds.strip(): all_notes.append(f"OPs/Meds: {surgeries_meds}")
+                    warnhinweis = ", ".join(all_notes)
+
+                    # Google Sheets Update
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1985436937#gid=1985436937"
+                    df = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
+                    
+                    neues_mitglied = pd.DataFrame([{
+                        "Datum": datetime.now().strftime("%d.%m.%Y"),
+                        "Vorname": st.session_state.vorname, 
+                        "Nachname": st.session_state.nachname,
+                        "Geburtsdatum": st.session_state.geburtsdatum, 
+                        "E-Mail": st.session_state.email,
+                        "Telefon": st.session_state.telefon, 
+                        "Adresse": st.session_state.adresse,
+                        "Tarif": st.session_state.tarif, 
+                        "Ziele": ", ".join(st.session_state.ziele), 
+                        "Gesundheits_Notizen": warnhinweis
+                    }])
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=pd.concat([df, neues_mitglied], ignore_index=True))
+
+                    # PDF generieren
+                    html = f"<h1>Mitgliedschaftsvertrag: {st.session_state.vorname} {st.session_state.nachname}</h1><p>Tarif: {st.session_state.tarif}</p>"
+                    pdf_bytes = HTML(string=html).write_pdf()
+                    st.session_state.pdf_bytes = pdf_bytes
+
+                    # E-Mail Versand mit Anhängen und Logo
+                    sender = st.secrets["email"]["absender"]
+                    msg = MIMEMultipart("related")
+                    msg['From'] = sender
+                    msg['To'] = st.session_state.email
+                    msg['Bcc'] = sender
+                    msg['Subject'] = "Deine Unterlagen bei Hinkelfit"
+                    
+                    body = MIMEMultipart("alternative")
+                    body.attach(MIMEText(f"Hallo {st.session_state.vorname},\n\nvielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.\n\nSportliche Grüße\nHarald", 'plain'))
+                    html_body = f"<html><body><p>Hallo {st.session_state.vorname},</p><p>vielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.</p><br><p>Sportliche Grüße<br>Harald</p><br><img src='cid:logo' style='width:200px;'></body></html>"
+                    body.attach(MIMEText(html_body, 'html'))
+                    msg.attach(body)
+                    
+                    logo_path = os.path.join("pdfs", "Logo heller Hintergrund.jpg")
+                    if os.path.exists(logo_path):
+                        with open(logo_path, "rb") as f:
+                            logo = MIMEImage(f.read())
+                            logo.add_header('Content-ID', '<logo>')
+                            msg.attach(logo)
+                    
+                    pdf_liste = ["Allgemeine Geschäftsbedingungen.pdf", "Datenschutzerklärung.pdf", "Ernährungskompass.pdf", "Hausordnung.pdf", "Willkommen.pdf"]
+                    for p in pdf_liste:
+                        pdf_path = os.path.join("pdfs", p)
+                        if os.path.exists(pdf_path):
+                            with open(pdf_path, "rb") as f:
+                                part = MIMEApplication(f.read(), _subtype="pdf")
+                                part.add_header('Content-Disposition', 'attachment', filename=p)
+                                msg.attach(part)
+                    
+                    pdf_part = MIMEApplication(pdf_bytes, _subtype="pdf")
+                    pdf_part.add_header('Content-Disposition', 'attachment', filename="Vertrag.pdf")
+                    msg.attach(pdf_part)
+                    
+                    server = smtplib.SMTP(st.secrets["email"]["smtp_server"], int(st.secrets["email"]["smtp_port"]))
+                    server.starttls()
+                    server.login(sender, st.secrets["email"]["passwort"])
+                    server.send_message(msg)
+                    server.quit()
+
+                    st.session_state.step = 3
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Fehler bei der Verarbeitung: {e}")
 
 elif st.session_state.step == 3:
-    st.success("🎉 Anmeldung erledigt!")
+    st.success("🎉 Anmeldung erfolgreich! Die Daten wurden gespeichert, die E-Mail mit allen Anhängen wurde versendet.")
     st.download_button("📥 Vertrag lokal speichern", data=st.session_state.pdf_bytes, file_name="Vertrag.pdf", mime="application/pdf")
-    if st.button("🔄 Neues Mitglied"):
+    if st.button("🔄 Neues Mitglied anlegen"):
         reset_app()
         st.rerun()
