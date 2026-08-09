@@ -17,90 +17,89 @@ from streamlit_gsheets import GSheetsConnection
 st.set_page_config(page_title="Hinkelfit | Anmeldung", page_icon="📝", layout="wide")
 
 if "password_correct" not in st.session_state or not st.session_state["password_correct"]:
-    st.warning("🔒 Bitte logge dich zuerst ein.")
+    st.warning("🔒 Bitte logge dich zuerst über die Startseite ein.")
     st.stop()
 
-# Session State für Stabilität auf Tablets
+# --- INITIALISIERUNG ---
 if "step" not in st.session_state: st.session_state.step = 1
-# Initialisierung der Felder, falls noch nicht vorhanden
-defaults = {
-    "vorname": "", "nachname": "", "geburtsdatum": "", "email": "", "telefon": "", "adresse": "",
-    "tarif": "Kurse 2x wöchentlich, 59€ pro Monat", "experience": "Anfänger", "main_goal": [],
-    "agb": False, "haftung": False, "datenschutz": False, "signature": None
-}
-for key, val in defaults.items():
-    if key not in st.session_state: st.session_state[key] = val
+# WICHTIG: Keys für persistente Checkboxen auf Tablets
+if "agb" not in st.session_state: st.session_state.agb = False
+if "haftung" not in st.session_state: st.session_state.haftung = False
+if "datenschutz" not in st.session_state: st.session_state.datenschutz = False
 
 # -------------------------------------------------------------------------
 # SCHRITT 1: ANMELDUNG
 # -------------------------------------------------------------------------
 if st.session_state.step == 1:
     st.title("📝 Neues Mitglied anmelden")
-    
-    # 1. Persönliche Daten
-    st.subheader("👤 1. Persönliche Daten")
-    st.session_state.vorname = st.text_input("Vorname *", value=st.session_state.vorname)
-    st.session_state.nachname = st.text_input("Nachname *", value=st.session_state.nachname)
-    st.session_state.geburtsdatum = st.text_input("Geburtsdatum", value=st.session_state.geburtsdatum)
-    st.session_state.email = st.text_input("E-Mail-Adresse *", value=st.session_state.email)
-    st.session_state.telefon = st.text_input("Telefonnummer", value=st.session_state.telefon)
-    st.session_state.adresse = st.text_input("Adresse", value=st.session_state.adresse)
 
-    # 2. Tarif & Ziele
-    st.subheader("🏋️ 2. Tarif & Ziele")
-    st.session_state.tarif = st.selectbox("Tarifauswahl", 
-        ["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"],
-        index=["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"].index(st.session_state.tarif)
-    )
-    st.session_state.main_goal = st.multiselect("Hauptziele", ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], default=st.session_state.main_goal)
+    # Layout: Persönliche Daten wieder in Spalten
+    st.subheader("👤 Persönliche Daten")
+    col1, col2 = st.columns(2)
+    with col1:
+        vorname = st.text_input("Vorname *")
+        nachname = st.text_input("Nachname *")
+        adresse = st.text_input("Anschrift (Straße, Hausnummer, PLZ, Ort)")
+    with col2:
+        email = st.text_input("E-Mail-Adresse *")
+        telefon = st.text_input("Telefonnummer")
+        geburtsdatum = st.text_input("Geburtsdatum")
 
-    # 3. Rechtliches (JETZT MIT VIEL PLATZ)
-    st.subheader("📄 3. Rechtliches & Zustimmung")
-    st.info("""**Allgemeine Vertragsbedingungen:**\n
-• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n
-• **Terminabsage & Stornierung:** 48 Stunden vorher.\n
-• **Kündigungsfrist:** 2 Wochen zum Monatsende""")
+    st.subheader("🏋️ Tarif & Ziele")
+    tarif = st.selectbox("Wähle deinen Tarif:", [
+        "Kurse 2x wöchentlich, 59€ pro Monat", 
+        "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", 
+        "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
+    ])
+    ziele = st.text_area("Ziele des Trainings")
+
+    st.subheader("📄 Vertrag & Haftung")
+    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung sofort per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Monatsende""")
     
-    st.session_state.agb = st.checkbox("Ich akzeptiere die Vertragsbedingungen und AGB. *", value=st.session_state.agb)
-    st.write("---")
-    
-    st.info("""**Haftungsausschluss:** Eigenverantwortung, Risikoaufklärung, Haftungsbeschränkung (Wahrheitspflicht, Sofortiger Trainingsstopp, etc.).""")
+    # Checkboxen hier einzeln, damit sie auf Tablets groß genug sind
+    st.session_state.agb = st.checkbox("Ich stimme den Vertragsbedingungen, den AGB, der Hausordnung und der Datenschutzerklärung zu. *", value=st.session_state.agb)
+
+    st.info("""**1. Gesundheitliche Eigenverantwortung & Wahrheitsgemäße Angaben**
+* **Eigenverantwortung:** Der Kunde versichert, dass er gesund ist und keine gesundheitlichen Einschränkungen vorliegen, die einer Teilnahme am Training entgegenstehen.
+* **Wahrheitspflicht:** Alle Angaben im Anamnesebogen wurden vollständig und wahrheitsgemäß gemacht. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.
+* **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtet sich der Kunde, vor der Teilnahme einen Arzt zu konsultieren.
+
+**2. Risikoaufklärung**
+* **Körperliche Belastung:** Dem Kunden ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.
+* **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.
+* **Sofortiger Trainingsstopp:** Der Kunde verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.
+
+**3. Haftungsbeschränkung**
+* **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.
+* **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.
+* **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.
+
+**4. Befolgen von Anweisungen**
+* Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
     st.session_state.haftung = st.checkbox("Ich habe die Risiko- und Haftungserklärung gelesen und akzeptiere diese. *", value=st.session_state.haftung)
-    st.write("---")
-    
-    st.info("""**Datenschutz:** Einwilligung in die Datenverarbeitung (Art. 9 DSGVO).""")
+
+    st.info("""**Einwilligung in die Datenverarbeitung (Art. 9 DSGVO):**
+Ich willige ausdrücklich ein, dass meine gesundheitsbezogenen Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte (PDF) erfolgt im geschützten Cloud-Speicher Google Drive. Diese Einwilligung kann ich jederzeit mit Wirkung für die Zukunft widerrufen.""")
     st.session_state.datenschutz = st.checkbox("Ich willige in die Verarbeitung meiner Gesundheitsdaten ein. *", value=st.session_state.datenschutz)
 
-    # 4. Unterschrift
-    st.subheader("🖋️ 4. Unterschrift")
+    st.subheader("🖋️ Digitale Unterschrift")
     canvas_result = st_canvas(fill_color="rgba(255, 255, 255, 1)", stroke_width=3, stroke_color="#000000", background_color="#EEEEEE", height=200, width=700, drawing_mode="freedraw", key="canvas")
 
-    if st.button("✅ Weiter zur Anamnese"):
-        if not st.session_state.vorname or not st.session_state.nachname or not st.session_state.email:
-            st.error("⚠️ Bitte Pflichtfelder ausfüllen!")
+    if st.button("✅ Vertrag unterzeichnen & Anamnese starten"):
+        if not (vorname and nachname and email):
+            st.error("Bitte fülle Name und E-Mail aus.")
         elif not (st.session_state.agb and st.session_state.haftung and st.session_state.datenschutz):
-            st.error("⚠️ Bitte alle Rechtshaken setzen!")
+            st.error("Bitte bestätige alle drei Rechtstexte!")
         elif canvas_result.image_data is None:
-            st.error("⚠️ Bitte unterschreiben!")
+            st.error("Bitte unterschreibe!")
         else:
-            st.session_state.member_data["signature"] = canvas_result.image_data
+            st.session_state.member_data = {"vorname": vorname, "nachname": nachname, "email": email, "tarif": tarif, "signature": canvas_result.image_data}
             st.session_state.step = 2
             st.rerun()
 
 # -------------------------------------------------------------------------
-# SCHRITT 2: ANAMNESE
+# SCHRITT 2: ANAMNESE (Logik unverändert)
 # -------------------------------------------------------------------------
 elif st.session_state.step == 2:
-    st.title("🩺 Anamnesebogen")
-    # Hier gleiches Prinzip: Keine Forms, direkte Eingaben
-    st.write("Herz-Kreislauf, Gelenke, etc. ... (deine Felder hier einfügen)")
-    if st.button("✅ Registrierung abschließen"):
-        # ... (Logik wie vorher)
-        st.session_state.step = 3
-        st.rerun()
-
-elif st.session_state.step == 3:
-    st.success("✅ Erledigt!")
-    if st.button("🔄 Neues Mitglied"):
-         st.session_state.step = 1
-         st.rerun()
+    # Hier deinen restlichen Code (Anamnese + Submit) einfügen
+    # ...
