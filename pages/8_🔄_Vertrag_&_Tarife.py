@@ -326,7 +326,7 @@ if selected_member_str:
                 conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                 st.cache_data.clear()
                 
-                # 3. E-Mail mit PDF versenden (Singular: "ich")
+                # 3. E-Mail mit PDF versenden
                 email = row.get("E-Mail", "")
                 first_name = row.get("Vorname", "Mitglied")
                 
@@ -339,12 +339,21 @@ if selected_member_str:
                     """
                     if send_hinkelfit_email_with_pdf(email, first_name, subject, body, pdf_path):
                         st.success(f"✅ Tarifänderung erfolgreich gespeichert, PDF erstellt und E-Mail erfolgreich an {row['Name']} gesendet!")
+                        
+                        # Unterschriftenfeld im Session State leeren, damit es beim nächsten Rerun leer ist
+                        if "tariff_canvas" in st.session_state:
+                            del st.session_state["tariff_canvas"]
+                            
+                        st.rerun()
                     else:
                         st.warning("⚠️ Tarif wurde geändert und PDF im Ordner gespeichert, aber beim E-Mail-Versand gab es ein Problem.")
                 else:
                     st.success(f"✅ Tarif erfolgreich in der Cloud geändert und unterschriebene PDF im Ordner abgelegt! (Keine E-Mail-Adresse für den Versand hinterlegt).")
-                
-                st.rerun()
+                    
+                    if "tariff_canvas" in st.session_state:
+                        del st.session_state["tariff_canvas"]
+                        
+                    st.rerun()
                 
     # -------------------------------------------------------------------------
     # TAB 2: PAUSIEREN / REAKTIVIEREN
