@@ -525,7 +525,7 @@ with tab3:
     st.markdown("---")
     st.subheader("⚙️ Vertragsstatus & Kündigung bearbeiten")
     
-    member_options = df_members.apply(lambda x: f"{x['Mitglieder_ID']} | {x['Name']} (Status: {x['Status']})", axis=1).tolist()
+   member_options = df_members.apply(lambda x: f"{x['Mitglieder_ID']} | {x['Vorname']} {x['Nachname']} (Status: {x['Status']})", axis=1).tolist()
     manage_member_selection = st.selectbox("Mitglied auswählen:", member_options)
     
     if manage_member_selection:
