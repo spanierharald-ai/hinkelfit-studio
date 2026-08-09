@@ -106,7 +106,7 @@ if submit_button:
                     st.warning(f"Angehängte Datei nicht gefunden: {pdf_name}")
 
             # E-Mail Absenden (Standard: Gmail-Server)
-            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server = smtplib.SMTP('smtp.ionos.de', 587)
             server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(msg)
