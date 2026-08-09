@@ -159,7 +159,7 @@ elif st.session_state.step == 2:
     st.subheader("6. Risikoaufklärung")
     st.info("""**Risikoaufklärung:**\n
 • **Körperliche Belastung:** Dem Mitglied ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.\n
-• **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.\n
+• **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen worden sein.\n
 • **Sofortiger Trainingsstopp:** Das Mitglied verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.""")
     if st.button("✅ Risikoaufklärung bestätigen" if not st.session_state.risiko_ok else "Risikoaufklärung bestätigt ✅", key="btn_risiko"):
         st.session_state.risiko_ok = True
@@ -178,18 +178,129 @@ elif st.session_state.step == 2:
         if not (st.session_state.wahrheit_ok and st.session_state.risiko_ok and st.session_state.haftung_ok):
             st.error("⚠️ Bitte bestätige separat die Wahrheitspflicht, die Risikoaufklärung und den Haftungsausschluss!")
         else:
-            with st.spinner("Verarbeite Anmeldung..."):
-                # Hier läuft die Logik (Google Sheets/E-Mail/Drive)...
-                st.session_state.step = 3
-                st.rerun()
+            with st.spinner("Verarbeite Anmeldung, speichere Daten und versende E-Mail..."):
+                try:
+                    # Gesundheitsnotizen zusammenfassen
+                    cv_list = [c for c in ["Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen"] if st.session_state.get(c)]
+                    if cardio_other: cv_list.append(cardio_other)
+                    
+                    ms_list = [c for c in ["Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden"] if st.session_state.get(c)]
+                    if ms_other: ms_list.append(ms_other)
+                    
+                    met_list = [c for c in ["Diabetes", "Asthma", "Neigung zu Krämpfen", "Epilepsie", "Organerkrankungen"] if st.session_state.get(c)]
+                    if met_other: met_list.append(met_other)
+                    
+                    all_notes = cv_list + ms_list + met_list
+                    if surgeries_meds.strip():
+                        all_notes.append(f"OPs/Meds: {surgeries_meds}")
+                    warnhinweis = ", ".join(all_notes)
+
+                    # 1. Google Sheets aktualisieren
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1985436937#gid=1985436937"
+                    df = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
+                    
+                    neues_mitglied = pd.DataFrame([{
+                        "Datum": datetime.now().strftime("%d.%m.%Y"),
+                        "Vorname": st.session_state.vorname, 
+                        "Nachname": st.session_state.nachname,
+                        "Geburtsdatum": st.session_state.geburtsdatum, 
+                        "E-Mail": st.session_state.email,
+                        "Telefon": st.session_state.telefon, 
+                        "Adresse": st.session_state.adresse,
+                        "Tarif": st.session_state.tarif, 
+                        "Ziele": ", ".join(st.session_state.ziele), 
+                        "Gesundheits_Notizen": warnhinweis
+                    }])
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=pd.concat([df, neues_mitglied], ignore_index=True))
+
+                    # 2. E-Mail mit Anhängen aus dem GitHub-Ordner "pdfs" versenden
+                    sender_email = st.secrets["email"]["absender"]
+                    server = smtplib.SMTP(st.secrets["email"]["smtp_server"], int(st.secrets["email"]["smtp_port"]))
+                    server.starttls()
+                    server.login(sender_email, st.secrets["email"]["passwort"])
+                    
+                    msg = MIMEMultipart()
+                    msg['From'] = sender_email
+                    msg['To'] = st.session_state.email
+                    msg['Subject'] = "Willkommen im Hinkelfit Studio! 🏋️"
+                    
+                    text_body = f"Hallo {st.session_state.vorname},\n\nherzlich willkommen im Hinkelfit Studio! Wir freuen uns, dich an Bord zu haben.\n\nAnbei findest du deine Vertragsunterlagen, unsere Hausordnung sowie den Ernährungskompass als PDF-Dateien.\n\nSportliche Grüße,\nDein Hinkelfit-Team"
+                    msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
+                    
+                    pdf_liste = [
+                        "Allgemeine Geschäftsbedingungen.pdf",
+                        "Datenschutzerklärung.pdf",
+                        "Ernährungskompass.pdf",
+                        "Hausordnung.pdf",
+                        "Willkommen.pdf"
+                    ]
+
+                    for pdf_name in pdf_liste:
+                        pdf_pfad = os.path.join("pdfs", pdf_name)
+                        if os.path.exists(pdf_pfad):
+                            with open(pdf_pfad, "rb") as f:
+                                attach = MIMEApplication(f.read(), _subtype="pdf")
+                                attach.add_header('Content-Disposition', 'attachment', filename=pdf_name)
+                                msg.attach(attach)
+
+                    server.send_message(msg)
+                    server.quit()
+
+                    # 3. Google Drive Ordner anlegen & Unterschrift hochladen
+                    creds_dict = st.secrets["connections"]["gsheets"]
+                    scopes = ['https://www.googleapis.com/auth/drive']
+                    creds = service_account.Credentials.from_service_account_info(
+                        {
+                            "type": creds_dict["type"],
+                            "project_id": creds_dict["project_id"],
+                            "private_key_id": creds_dict["private_key_id"],
+                            "private_key": creds_dict["private_key"],
+                            "client_email": creds_dict["client_email"],
+                            "client_id": creds_dict["client_id"],
+                            "auth_uri": creds_dict["auth_uri"],
+                            "token_uri": creds_dict["token_uri"],
+                            "auth_provider_x509_cert_url": creds_dict["auth_provider_x509_cert_url"],
+                            "client_x509_cert_url": creds_dict["client_x509_cert_url"],
+                        }, 
+                        scopes=scopes
+                    )
+                    drive_service = build('drive', 'v3', credentials=creds)
+
+                    hauptordner_id = st.secrets["drive"]["hauptordner_id"]
+                    ordner_name = f"{st.session_state.nachname}_{st.session_state.vorname}_{datetime.now().strftime('%d%m%Y')}"
+
+                    file_metadata = {
+                        'name': ordner_name,
+                        'mimeType': 'application/vnd.google-apps.folder',
+                        'parents': [hauptordner_id]
+                    }
+                    folder = drive_service.files().create(body=file_metadata, fields='id').execute()
+                    neu_ordner_id = folder.get('id')
+
+                    img_data = st.session_state.signature
+                    image = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+                    img_byte_arr = io.BytesIO()
+                    image.save(img_byte_arr, format='PNG')
+                    img_byte_arr.seek(0)
+
+                    media = MediaIoBaseUpload(img_byte_arr, mimetype='image/png', resumable=True)
+                    file_metadata_sig = {'name': 'Unterschrift.png', 'parents': [neu_ordner_id]}
+                    drive_service.files().create(body=file_metadata_sig, media_body=media, fields='id').execute()
+
+                    st.session_state.step = 3
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Fehler bei der Verarbeitung: {e}")
 
 elif st.session_state.step == 3:
     st.balloons()
-    st.success("🎉 Registrierung erfolgreich!")
-    if st.button("🔄 Neues Mitglied"):
+    st.success("🎉 Registrierung erfolgreich! Die Daten wurden gespeichert, die E-Mail mit den Anhängen wurde versendet und der Google Drive Ordner wurde erstellt.")
+    if st.button("🔄 Neues Mitglied anlegen"):
          for key in ["step", "agb_ok", "dsgvo_ok", "risiko_ok", "haftung_ok", "wahrheit_ok"] + health_keys: 
              st.session_state[key] = (1 if key == "step" else False)
          st.session_state.vorname = ""
          st.session_state.nachname = ""
          st.session_state.email = ""
+         st.session_state.signature = None
          st.rerun()
