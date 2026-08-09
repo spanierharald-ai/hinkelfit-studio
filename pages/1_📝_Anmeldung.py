@@ -92,7 +92,7 @@ if st.session_state.step == 1:
     if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"):
         st.session_state.agb_ok = True
     
-    st.info("""**Datenschutz (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher Google Drive. Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
+    st.info("""**Datenschutz (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher Google Drive. Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
     if st.button("✅ Datenschutzerklärung akzeptieren" if not st.session_state.dsgvo_ok else "Datenschutz akzeptiert ✅", key="btn_dsgvo"):
         st.session_state.dsgvo_ok = True
 
@@ -125,28 +125,28 @@ elif st.session_state.step == 2:
         st.session_state[k] = not st.session_state[k]
     
     st.subheader("1. Herz-Kreislauf-System und Gefäße")
-    st.write("Leidet das Mitglied unter Vorerkrankungen des Herz-Kreislauf-Systems?")
+    st.write("Leidest du unter Vorerkrankungen des Herz-Kreislauf-Systems?")
     for k in ["Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen"]:
         if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
             btn_toggle(k)
-    cardio_other = st.text_input("Sonstiges / Weitere Details zu Herz-Kreislauf:")
+    cardio_other = st.text_input("Sonstiges / Weitere Details zu Vorerkrankungen des Herz-Kreislauf-Sytems:")
 
     st.subheader("2. Bewegungsapparat, Gelenke und Wirbelsäule")
-    st.write("Hat das Mitglied Beschwerden im Bereich des Bewegungsapparates?")
+    st.write("Hast du Beschwerden im Bereich des Bewegungsapparates?")
     for k in ["Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden"]:
         if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
             btn_toggle(k)
     ms_other = st.text_input("Sonstiges / Weitere Details zum Bewegungsapparat:")
 
     st.subheader("3. Stoffwechsel, Organe und Atmung")
-    st.write("Liegen beim Mitglied Stoffwechsel- oder Atemwegserkrankungen vor?")
+    st.write("Liegen bei dir Stoffwechsel- oder Atemwegserkrankungen vor?")
     for k in ["Diabetes", "Asthma", "Neigung zu Krämpfen", "Epilepsie", "Organerkrankungen"]:
         if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
             btn_toggle(k)
     met_other = st.text_input("Sonstiges / Weitere Details zu Stoffwechsel & Organen:")
 
     st.subheader("4. Operationen, Verletzungen und Medikamente")
-    surgeries_meds = st.text_area("Gab es in den letzten 5 Jahren Operationen oder schwerwiegende Verletzungen? Nimmt das Mitglied regelmäßige Medikamente ein?")
+    surgeries_meds = st.text_area("Gab es in den letzten 5 Jahren Operationen oder schwerwiegende Verletzungen? Nimmst du regelmäßige Medikamente ein, die das Training beeinträchtigen?")
     
     st.markdown("---")
     st.subheader("5. Wahrheitspflicht")
