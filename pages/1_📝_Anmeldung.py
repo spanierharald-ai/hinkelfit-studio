@@ -297,10 +297,15 @@ elif st.session_state.step == 3:
     st.balloons()
     st.success("🎉 Registrierung erfolgreich! Die Daten wurden gespeichert, die E-Mail mit den Anhängen wurde versendet und der Google Drive Ordner wurde erstellt.")
     if st.button("🔄 Neues Mitglied anlegen"):
+         # Alle Status-Flags, Anamnese-Zweige und Eingabefelder komplett leeren
          for key in ["step", "agb_ok", "dsgvo_ok", "risiko_ok", "haftung_ok", "wahrheit_ok"] + health_keys: 
              st.session_state[key] = (1 if key == "step" else False)
          st.session_state.vorname = ""
          st.session_state.nachname = ""
          st.session_state.email = ""
+         st.session_state.telefon = ""
+         st.session_state.adresse = ""
+         st.session_state.geburtsdatum = ""
+         st.session_state.ziele = []
          st.session_state.signature = None
          st.rerun()
