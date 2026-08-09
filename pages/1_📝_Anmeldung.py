@@ -290,8 +290,11 @@ elif st.session_state.step == 2:
                     msg['Subject'] = "Deine Unterlagen bei Hinkelfit"
                     
                     body = MIMEMultipart("alternative")
-                    body.attach(MIMEText(f"Hallo {st.session_state.vorname},\n\nvielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.\n\nSportliche Grüße\nHarald", 'plain'))
-                    html_body = f"<html><body><p>Hallo {st.session_state.vorname},</p><p>vielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.</p><br><p>Sportliche Grüße<br>Harald</p><br><img src='cid:logo' style='width:200px;'></body></html>"
+                    # Firmenname Hinkelfit zur reinen Text-Version hinzugefügt
+                    body.attach(MIMEText(f"Hallo {st.session_state.vorname},\n\nvielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.\n\nSportliche Grüße\nHarald\nHinkelfit", 'plain'))
+                    
+                    # Firmenname Hinkelfit zur HTML-Version hinzugefügt, direkt über dem Logo
+                    html_body = f"<html><body><p>Hallo {st.session_state.vorname},</p><p>vielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.</p><br><p>Sportliche Grüße<br>Harald<br><b>Hinkelfit</b></p><br><img src='cid:logo' style='width:200px;' alt='Hinkelfit Logo'></body></html>"
                     body.attach(MIMEText(html_body, 'html'))
                     msg.attach(body)
                     
