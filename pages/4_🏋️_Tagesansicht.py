@@ -17,12 +17,19 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 try:
     df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
     df_members = df_members.dropna(how="all")
-except Exception:
-    df_members = pd.DataFrame()
+except Exception as e:
+    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
+    st.stop()
 
 if df_members.empty:
     st.warning("Keine Mitgliederdatenbank in Google Sheets gefunden. Bitte zuerst Mitglieder anlegen.")
     st.stop()
+
+# --- SAUBERE LÖSUNG: Hilfsspalte "Name" für die Suche/Anzeige anlegen ---
+if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+    df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
+else:
+    df_members["Name"] = "Unbekannt"
 
 # Automatisches Datenbank-Upgrade: Fügt die Gesundheits-Notizen hinzu, falls sie fehlen
 needs_update = False
@@ -31,7 +38,7 @@ if "Gesundheits_Notizen" not in df_members.columns:
     needs_update = True
     
 if needs_update:
-    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
     st.cache_data.clear()
 
 # Termine laden
@@ -119,12 +126,13 @@ with st.expander("⚙️ Gesundheits-Warnungen & Notizen für das Dashboard pfle
         if pd.isna(aktuelle_notiz):
             aktuelle_notiz = ""
             
-        neue_notiz = st.text_input(f"Kurze Warnung/Notiz für {auswahl_name}:", value=aktuelle_notiz, placeholder="z.B. LWS Vorfall 2024, Keine Überkopfbewegungen")
+        neue_notiz = st.text_input(f"Kurze Warnung/Notiz für {auswahl_name}:", value=str(aktuelle_notiz).replace('nan', ''), placeholder="z.B. LWS Vorfall 2024, Keine Überkopfbewegungen")
         
         if st.button("💾 Notiz in Cloud speichern"):
             df_members.loc[df_members["Name"] == auswahl_name, "Gesundheits_Notizen"] = neue_notiz
             
-            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+            # Wichtig: Die Hilfsspalte "Name" vor dem Speichern wieder entfernen
+            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
             st.cache_data.clear()
             
             st.success("Notiz erfolgreich gespeichert! Sie wird ab sofort im Tagesplan angezeigt.")
