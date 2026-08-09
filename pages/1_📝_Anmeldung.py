@@ -53,9 +53,9 @@ if st.session_state.step == 1:
         tarif = st.selectbox(
             "Tarifauswahl", 
             [
-                "Kurse 2x wöchentlich 59€", 
-                "Kleingruppen-Personal-Training 1x wöchentlich 99€", 
-                "Kleingruppen-Personal-Training 2x wöchentich 179€"
+                "Kurse 2x wöchentlich 59€ pro Monat", 
+                "Kleingruppen-Personal-Training 1x wöchentlich 99€ pro Monat", 
+                "Kleingruppen-Personal-Training 2x wöchentlich 179€ pro Monat"
             ]
         )
         experience = st.selectbox(
