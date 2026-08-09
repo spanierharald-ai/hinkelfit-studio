@@ -18,17 +18,32 @@ needs_member_update = False
 try:
     df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
     df_members = df_members.dropna(how="all")
-except Exception:
+except Exception as e:
+    st.error("⚠️ Die Verbindung zu Google Sheets wurde kurzzeitig unterbrochen. Bitte lade die Seite (F5) neu.")
     df_members = pd.DataFrame()
 
-if not df_members.empty:
-    if "Buero_Status" not in df_members.columns:
-        df_members["Buero_Status"] = "Offen"
-        needs_member_update = True
-        
-    if needs_member_update:
-        conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
-        st.cache_data.clear()
+if df_members.empty:
+    st.warning("Keine Mitglieder in der Datenbank gefunden.")
+    st.stop()
+
+# --- TYP-KONFLIKTE VERHINDERN & NAMENS-HILFSSPALTE ---
+text_columns = ['Mitglieder_ID', 'Vorname', 'Nachname', 'E-Mail', 'Telefon', 'Adresse', 'Tarif', 'Status', 'Buero_Status']
+for col in text_columns:
+    if col in df_members.columns:
+        df_members[col] = df_members[col].astype(object)
+
+if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
+    df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
+else:
+    df_members["Name"] = "Unbekannt"
+
+if "Buero_Status" not in df_members.columns:
+    df_members["Buero_Status"] = "Offen"
+    needs_member_update = True
+    
+if needs_member_update:
+    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
+    st.cache_data.clear()
 
 try:
     df_termine = conn.read(spreadsheet=SHEET_URL, worksheet="Termine", ttl=0)
@@ -51,27 +66,28 @@ with tab1:
     st.write("Hier siehst du alle Mitglieder, deren Aufnahme und Bearbeitung (z. B. LexOffice-Anlage) noch für deinen Bürotag ansteht.")
     
     if not df_members.empty:
-        df_neu = df_members[df_members["Buero_Status"] == "Offen"]
+        df_neu = df_members[df_members["Buero_Status"].astype(str).str.strip() == "Offen"]
         
         if not df_neu.empty:
             st.info(f"Es gibt **{len(df_neu)}** offene Mitglied(er) zu bearbeiten.")
             
             for idx, row in df_neu.iterrows():
-                with st.expander(f"🆕 {row['Name']} (ID: {row['Mitglieder_ID']} | Beitritt: {row['Beitrittsdatum']})"):
+                beitritt = row.get('Datum', 'Unbekannt')
+                with st.expander(f"🆕 {row['Name']} (ID: {row.get('Mitglieder_ID', 'N/A')} | Beitritt: {beitritt})"):
                     col_m1, col_m2, col_m3 = st.columns([2, 2, 1])
                     with col_m1:
-                        st.write(f"**Tarif:** {row['Tarif']}")
-                        st.write(f"**Anschrift:** {row['Anschrift']}")
+                        st.write(f"**Tarif:** {row.get('Tarif', '-')}")
+                        st.write(f"**Anschrift:** {row.get('Adresse', '-')}")
                     with col_m2:
-                        st.write(f"**E-Mail:** {row['Email']}")
-                        st.write(f"**Telefon:** {row['Telefonnummer']}")
+                        st.write(f"**E-Mail:** {row.get('E-Mail', '-')}")
+                        st.write(f"**Telefon:** {row.get('Telefon', '-')}")
                     with col_m3:
                         st.write("")
-                        if st.button("✅ Erledigt / Abhaken", key=f"done_member_{row['Mitglieder_ID']}"):
+                        if st.button("✅ Erledigt / Abhaken", key=f"done_member_{row.get('Mitglieder_ID', idx)}"):
                             m_idx = df_members.index[df_members["Mitglieder_ID"] == row["Mitglieder_ID"]].tolist()[0]
                             df_members.at[m_idx, "Buero_Status"] = "Erledigt"
                             
-                            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                            conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                             st.cache_data.clear()
                             
                             st.success(f"{row['Name']} als erledigt in der Cloud markiert!")
@@ -81,12 +97,14 @@ with tab1:
             
         st.markdown("---")
         with st.expander("📂 Bereits erledigte Mitglieder einsehen & zurücksetzen"):
-            df_done = df_members[df_members["Buero_Status"] == "Erledigt"]
+            df_done = df_members[df_members["Buero_Status"].astype(str).str.strip() == "Erledigt"]
             if not df_done.empty:
-                st.dataframe(df_done[["Mitglieder_ID", "Name", "Tarif", "Beitrittsdatum"]], use_container_width=True)
+                df_done_show = df_done.copy()
+                df_done_show["Beitritt"] = df_done_show.get("Datum", "-")
+                st.dataframe(df_done_show[["Mitglieder_ID", "Name", "Tarif", "Beitritt"]], use_container_width=True)
                 if st.button("🔄 Alle auf 'Offen' zurücksetzen (z. B. für den nächsten Bürotag)"):
                     df_members["Buero_Status"] = "Offen"
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_members.drop(columns=["Name"], errors="ignore"))
                     st.cache_data.clear()
                     st.success("Alle Mitglieder wurden wieder auf 'Offen' gesetzt!")
                     st.rerun()
