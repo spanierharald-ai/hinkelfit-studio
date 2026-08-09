@@ -86,7 +86,7 @@ def notify_participants(teilnehmer_liste, df_members_check, subject, message_bod
         else:
             member_row = df_members_check[df_members_check["Name"] == t.strip()]
             if not member_row.empty:
-                email = member_row.iloc[0].get("Email", "")
+                email = member_row.iloc[0].get("E-Mail", "")
                 name = t.strip().split()[0]
                 if pd.notna(email) and email != "":
                     send_hinkelfit_email(email, name, subject, message_body)
@@ -463,7 +463,7 @@ with tab1:
                         else:
                             mrow = df_members[df_members["Name"] == t.strip()]
                             if not mrow.empty:
-                                email, name, tarif = mrow.iloc[0].get("Email", ""), t.strip().split()[0], mrow.iloc[0].get("Tarif", "")
+                                email, name, tarif = mrow.iloc[0].get("E-Mail", ""), t.strip().split()[0], mrow.iloc[0].get("Tarif", "")
                         
                         if email and "@" in email:
                             slots_html = get_upcoming_slots(tarif, temp_df, start_w, start_w + datetime.timedelta(days=6))
@@ -493,7 +493,7 @@ with tab2:
             next_bday = datetime.date(today.year, dob.month, dob.day)
             if next_bday < today: next_bday = datetime.date(today.year + 1, dob.month, dob.day)
             days_until = (next_bday - today).days
-            info = {"Name": row["Name"], "Email": row.get("Email", ""), "Wird ... Jahre alt": next_bday.year - dob.year, "In ... Tagen": days_until}
+            info = {"Name": row["Name"], "Email": row.get("E-Mail", ""), "Wird ... Jahre alt": next_bday.year - dob.year, "In ... Tagen": days_until}
             if days_until == 0: bdays_today.append(info)
             elif 1 <= days_until <= 30: upcoming_bdays.append(info)
         except: pass 
@@ -532,7 +532,6 @@ with tab3:
     st.markdown("---")
     st.subheader("⚙️ Vertragsstatus & Kündigung bearbeiten")
     
-    # Hier funktioniert 'Name' nun einwandfrei
     member_options = df_members.apply(lambda x: f"{x['Mitglieder_ID']} | {x['Name']} (Status: {x['Status']})", axis=1).tolist()
     manage_member_selection = st.selectbox("Mitglied auswählen:", member_options)
     
@@ -542,8 +541,8 @@ with tab3:
         
         member_idx = df_members.index[df_members["Mitglieder_ID"] == selected_id].tolist()[0]
         current_status = df_members.at[member_idx, "Status"]
-        member_email = df_members.at[member_idx, "Email"]
-        beitrittsdatum = df_members.at[member_idx, "Beitrittsdatum"] if "Beitrittsdatum" in df_members.columns else ""
+        member_email = df_members.at[member_idx, "E-Mail"]
+        beitrittsdatum = df_members.at[member_idx, "Datum"] if "Datum" in df_members.columns else ""
         kuendigung_eingang_db = df_members.at[member_idx, "Kündigungs_Eingang"]
         vertrags_ende_db = df_members.at[member_idx, "Vertrags_Ende"]
         
@@ -625,8 +624,8 @@ with tab4:
             for t in termine_this_week["Teilnehmer"]:
                 if m["Name"] in [x.strip() for x in str(t).split(",")]: booked += 1
         offen = limit - booked
-        if offen > 0 and m.get("Email", ""):
-            promo_list.append({"Name": m["Name"], "Email": m["Email"], "Tarif": m["Tarif"], "Gebucht": booked, "Erlaubt": limit, "Offen": offen})
+        if offen > 0 and m.get("E-Mail", ""):
+            promo_list.append({"Name": m["Name"], "Email": m["E-Mail"], "Tarif": m["Tarif"], "Gebucht": booked, "Erlaubt": limit, "Offen": offen})
             
     if promo_list:
         df_promo = pd.DataFrame(promo_list)
