@@ -27,52 +27,96 @@ st.write("Fülle das Formular gemeinsam mit dem neuen Mitglied aus und lass es u
 
 # --- FORMULAR ---
 with st.form("anmeldung_form"):
-    st.subheader("👤 Persönliche Daten")
+    st.subheader("👤 1. Persönliche Daten")
     col1, col2 = st.columns(2)
     with col1:
-        vorname = st.text_input("Vorname")
-        nachname = st.text_input("Nachname")
+        vorname = st.text_input("Vorname *")
+        nachname = st.text_input("Nachname *")
         geburtsdatum = st.text_input("Geburtsdatum")
     with col2:
-        email = st.text_input("E-Mail-Adresse")
+        email = st.text_input("E-Mail-Adresse *")
         telefon = st.text_input("Telefonnummer")
         adresse = st.text_input("Adresse (Straße, PLZ, Ort)")
 
-    st.subheader("🏋️ Training & Vertrag")
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-        tarif = st.selectbox(
-            "Tarifauswahl", 
-            [
-                "Kurse 2x wöchentlich 59€", 
-                "Kleingruppen-Personal-Training 1x wöchentlich 99€", 
-                "Kleingruppen-Personal-Training 2x wöchentich 179€"
-            ]
-        )
-        erfahrung = st.selectbox("Bisherige Trainingserfahrung", ["Keine", "Anfänger", "Fortgeschritten", "Profi"])
-    with col_t2:
-        ziele = st.text_area("Ziele des Trainings")
+    st.subheader("🏋️ 2. Tarif & Ziele")
+    tarif = st.selectbox(
+        "Tarifauswahl", 
+        [
+            "Kurse 2x wöchentlich 59€", 
+            "Kleingruppen-Personal-Training 1x wöchentlich 99€", 
+            "Kleingruppen-Personal-Training 2x wöchentich 179€"
+        ]
+    )
+    experience = st.selectbox(
+        "Wie schätzt du deine Trainingserfahrung im Krafttraining ein?",
+        ["Anfänger (weniger als 6 Monate)", "Leicht fortgeschritten (6 Monate bis 2 Jahre)", "Fortgeschritten (über 2 Jahre)"]
+    )
+    main_goal = st.multiselect(
+        "Was sind deine Hauptziele bei Hinkelfit?",
+        ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"]
+    )
 
-    st.subheader("📄 Rechtliches & Zustimmung")
+    st.subheader("🩺 3. Anamnesebogen & Gesundheitsstatus")
     
-    st.markdown("""
-    **Allgemeine Vertragsbedingungen:**
+    st.write("**Herz-Kreislauf-System und Gefäße**")
+    cb_bluthochdruck = st.checkbox("Bluthochdruck")
+    cb_herzinfarkt = st.checkbox("Herzinfarkt (in der Vergangenheit)")
+    cb_schlaganfall = st.checkbox("Schlaganfall (in der Vergangenheit)")
+    cb_rhythmus = st.checkbox("Herzrhythmusstörungen")
+    cardiovascular_other = st.text_input("Sonstiges / Weitere Details zu Herz-Kreislauf:")
 
-    • **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.
+    st.write("**Bewegungsapparat, Gelenke und Wirbelsäule**")
+    cb_ruecken = st.checkbox("Beschwerden im unteren Rücken / Lendenwirbelsäule")
+    cb_gelenke = st.checkbox("Gelenkbeschwerden (z. B. Schulter, Knie)")
+    cb_artif_joint = st.checkbox("Künstliches Gelenk vorhanden")
+    cb_wirbelsaeule = st.checkbox("Sonstige Wirbelsäulenbeschwerden")
+    musculoskeletal_other = st.text_input("Sonstiges / Weitere Details zum Bewegungsapparat:")
 
-    • **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.
+    st.write("**Ststoffwechsel, Organe und Atmung**")
+    cb_diabetes = st.checkbox("Diabetes mellitus")
+    cb_asthma = st.checkbox("Asthma oder chronische Atemwegserkrankungen")
+    cb_cramps = st.checkbox("Neigung zu Krämpfen")
+    cb_epilepsy = st.checkbox("Epilepsie")
+    cb_organe = st.checkbox("Erkrankungen der inneren Organe (Niere, Leber etc.)")
+    metabolism_other = st.text_input("Sonstiges / Weitere Details zu Stoffwechsel & Organen:")
 
-    • **Kündigungsfrist:** 2 Wochen zum Monatsende
-    """)
+    st.write("**Operationen, Verletzungen und Medikamente**")
+    surgeries_meds = st.text_area("Gab es Operationen oder schwerwiegende Verletzungen? Nimmst du regelmäßige Medikamente ein?")
+
+    st.subheader("📄 4. Rechtliches & Zustimmung")
     
-    agb_akzeptiert = st.checkbox("Ich akzeptiere die Vertragsbedingungen und AGB.")
-    datenschutz_akzeptiert = st.checkbox("Ich stimme der Datenverarbeitung gemäß Datenschutzerklärung zu.")
-    haftungsausschluss = st.checkbox("Haftungsausschluss zur Kenntnis genommen.")
+    st.info("""**Allgemeine Vertragsbedingungen:**\n
+• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n
+• **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n
+• **Kündigungsfrist:** 2 Wochen zum Monatsende""")
+    agb_akzeptiert = st.checkbox("Ich akzeptiere die Vertragsbedingungen und AGB. *")
 
-    st.subheader("🖋️ Unterschrift")
+    st.info("""**1. Gesundheitliche Eigenverantwortung & Wahrheitsgemäße Angaben**
+* **Eigenverantwortung:** Der Kunde versichert, dass er gesund ist und keine gesundheitlichen Einschränkungen vorliegen, die einer Teilnahme am Training entgegenstehen.
+* **Wahrheitspflicht:** Alle Angaben im Anamnesebogen wurden vollständig und wahrheitsgemäß gemacht. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.
+* **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtet sich der Kunde, vor der Teilnahme einen Arzt zu konsultieren.
+
+**2. Risikoaufklärung**
+* **Körperliche Belastung:** Dem Kunden ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.
+* **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.
+* **Sofortiger Trainingsstopp:** Der Kunde verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.
+
+**3. Haftungsbeschränkung**
+* **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.
+* **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.
+* **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.
+
+**4. Befolgen von Anweisungen**
+* Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
+    haftungsausschluss = st.checkbox("Ich habe die Risiko- und Haftungserklärung gelesen und akzeptiere diese. *")
+
+    st.info("""**Einwilligung in die Datenverarbeitung (Art. 9 DSGVO):**
+Ich willige ausdrücklich ein, dass meine gesundheitsbezogenen Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher Google Drive (Google Ireland Ltd.). Diese Einwilligung kann ich jederzeit mit Wirkung für die Zukunft widerrufen.""")
+    datenschutz_akzeptiert = st.checkbox("Ich willige in die Verarbeitung meiner gesundheitsbezogenen Daten ein. *")
+
+    st.subheader("🖋️ 5. Unterschrift")
     st.write("Bitte hier im weißen Feld unterschreiben:")
     
-    # Das digitale Unterschriftsfeld
     canvas_result = st_canvas(
         fill_color="rgba(255, 255, 255, 1)", 
         stroke_width=3,
@@ -93,11 +137,37 @@ if submit_button:
         st.stop()
         
     if not agb_akzeptiert or not datenschutz_akzeptiert or not haftungsausschluss:
-        st.error("⚠️ Bitte bestätige alle rechtlichen Bedingungen (AGB, Datenschutz, Haftungsausschluss)!")
+        st.error("⚠️ Bitte bestätige alle rechtlichen Bedingungen (AGB, Haftungsausschluss, Datenschutz)!")
         st.stop()
 
     with st.spinner("Verarbeite Anmeldung... (Google Tabelle, E-Mail & Cloud werden synchronisiert)"):
         try:
+            # Anamnese-Daten zusammenfassen
+            cv_list, ms_list, met_list = [], [], []
+            if cb_bluthochdruck: cv_list.append("Bluthochdruck")
+            if cb_herzinfarkt: cv_list.append("Herzinfarkt")
+            if cb_schlaganfall: cv_list.append("Schlaganfall")
+            if cb_rhythmus: cv_list.append("Herzrhythmusstörungen")
+            if cardiovascular_other: cv_list.append(cardiovascular_other)
+
+            if cb_ruecken: ms_list.append("LWS/Rücken")
+            if cb_gelenke: ms_list.append("Gelenke")
+            if cb_artif_joint: ms_list.append("Künstl. Gelenk")
+            if cb_wirbelsaeule: ms_list.append("Wirbelsäule")
+            if musculoskeletal_other: ms_list.append(musculoskeletal_other)
+
+            if cb_diabetes: met_list.append("Diabetes")
+            if cb_asthma: met_list.append("Asthma")
+            if cb_cramps: met_list.append("Krämpfe")
+            if cb_epilepsy: met_list.append("Epilepsie")
+            if cb_organe: met_list.append("Organe")
+            if metabolism_other: met_list.append(metabolism_other)
+
+            alle_beschwerden = cv_list + ms_list + met_list
+            if surgeries_meds.strip():
+                alle_beschwerden.append("OPs/Meds beachten")
+            warnhinweis = ", ".join(alle_beschwerden)
+
             # 1. DATEN IN GOOGLE SHEETS SPEICHERN
             conn = st.connection("gsheets", type=GSheetsConnection)
             SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1985436937#gid=1985436937"
@@ -112,8 +182,9 @@ if submit_button:
                 "Telefon": telefon,
                 "Adresse": adresse,
                 "Tarif": tarif,
-                "Erfahrung": erfahrung,
-                "Ziele": ziele
+                "Erfahrung": experience,
+                "Ziele": ", ".join(main_goal),
+                "Gesundheits_Notizen": warnhinweis
             }])
             df_aktualisiert = pd.concat([df, neues_mitglied], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=df_aktualisiert)
@@ -132,7 +203,6 @@ if submit_button:
             text = f"Hallo {vorname},\n\nherzlich willkommen im Hinkelfit Studio! Wir freuen uns, dich an Bord zu haben.\n\nAnbei findest du deine Vertragsunterlagen, unsere Hausordnung sowie den Ernährungskompass als PDF-Dateien.\n\nSportliche Grüße,\nDein Hinkelfit-Team"
             msg.attach(MIMEText(text, 'plain', 'utf-8'))
 
-            # PDFs aus dem GitHub-Ordner anhängen
             pdf_liste = [
                 "Allgemeine Geschäftsbedingungen.pdf",
                 "Datenschutzerklärung.pdf",
@@ -151,7 +221,6 @@ if submit_button:
                 else:
                     st.warning(f"Angehängte Datei nicht gefunden: {pdf_name}")
 
-            # E-Mail Absenden über IONOS
             server = smtplib.SMTP(smtp_server, smtp_port)
             server.starttls()
             server.login(sender_email, sender_password)
