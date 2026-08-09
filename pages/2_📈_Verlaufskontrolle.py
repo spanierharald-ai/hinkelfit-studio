@@ -11,7 +11,7 @@ import matplotlib.dates as mdates
 import pandas as pd
 import streamlit as st
 import altair as alt
-from streamlit_gsheets import GSheetsConnection
+from supabase import create_client
 
 class ModernPDFReport(FPDF):
     def header(self):
@@ -53,9 +53,14 @@ st.set_page_config(
     page_title="Hinkelfit Leistungsverlauf", page_icon="📈", layout="centered"
 )
 
-# --- GOOGLE SHEETS VERBINDUNG ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1uFLWb2XHLgyuYkNdZv-9T7L1ZV6Ocp-WweeGye-QpNk/edit?gid=1776466270#gid=1776466270"
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- SUPABASE VERBINDUNG INITIALISIEREN ---
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase = init_supabase()
 
 # Basis-Ordner für PDF-Zwischenspeicherung & Bilder bleibt lokal
 BASE_DIR = r"C:\Users\carol\Desktop\HinkelFit\Planung Wittislingen\Anmeldung"
@@ -63,10 +68,10 @@ BASE_DIR = r"C:\Users\carol\Desktop\HinkelFit\Planung Wittislingen\Anmeldung"
 st.title("Hinkelfit - Monatliche Erfolgsmessung")
 st.write("Erfasse und verfolge die Trainingsdaten, Leistungen und den Fortschritt der Mitglieder.")
 
-# --- DATEN AUS GOOGLE SHEETS LESEN ---
+# --- DATEN AUS SUPABASE LESEN ---
 try:
-    df_members = conn.read(spreadsheet=SHEET_URL, worksheet="Mitglieder", ttl=0)
-    df_members = df_members.dropna(how="all")
+    res_members = supabase.table("Mitglieder").select("*").execute()
+    df_members = pd.DataFrame(res_members.data)
 except Exception:
     df_members = pd.DataFrame()
 
@@ -189,53 +194,39 @@ if not df_members.empty and "Name" in df_members.columns:
             row_data = {
                 "Name": selected_member_name, 
                 "Datum": str(training_date),
-                "Koerpergewicht": koerpergewicht,
+                "Koerpergewicht": float(koerpergewicht),
                 "Schmerzen": schmerzen,
                 "Bereich": exercise_type,
                 "Notizen": trainer_notes,
             }
             row_data.update(details)
 
-            new_entry = pd.DataFrame([row_data])
-
-            # --- HISTORIE AUS GOOGLE SHEETS LADEN & UPDATEN ---
+            # --- IN SUPABASE SPEICHERN ---
             try:
-                df_history_all = conn.read(spreadsheet=SHEET_URL, worksheet="Historie", ttl=0)
-                df_history_all = df_history_all.dropna(how="all")
-            except Exception:
-                df_history_all = pd.DataFrame()
+                supabase.table("Historie").insert(row_data).execute()
+                
+                # Gezielt nur die Daten dieses Mitglieds laden (blitzschnell!)
+                res_hist = supabase.table("Historie").select("*").eq("Name", selected_member_name).execute()
+                df_history = pd.DataFrame(res_hist.data)
+                
+                if submit_performance:
+                    st.success(f"Die Leistungsdaten für {selected_member_name} wurden zentral in Supabase gespeichert!")
 
-            if not df_history_all.empty:
-                df_history_all = pd.concat([df_history_all, new_entry], ignore_index=True, sort=False)
-            else:
-                df_history_all = new_entry
-
-            # Zurück in Google Sheets schreiben
-            conn.update(spreadsheet=SHEET_URL, worksheet="Historie", data=df_history_all)
-            st.cache_data.clear()
-
-            # Nur die Daten dieses speziellen Mitglieds für die PDF-Erstellung filtern
-            df_history = df_history_all[df_history_all["Name"] == selected_member_name].copy()
-
-            if submit_performance:
-                st.success(f"Die Leistungsdaten für {selected_member_name} wurden zentral in der Cloud gespeichert!")
-
-            if submit_email:
-                try:
+                if submit_email:
                     pdf_filename = os.path.join(member_dir, f"Erfolgsmessung_{training_date.strftime('%Y-%m-%d')}.pdf")
 
                     df_plot = df_history.copy()
-                    if "Datum" in df_plot.columns:
+                    if not df_plot.empty and "Datum" in df_plot.columns:
                         df_plot["Datum"] = pd.to_datetime(df_plot["Datum"])
                         df_plot = df_plot.sort_values("Datum")
 
                     plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
 
                     chart_weight_path = os.path.join(member_dir, "temp_weight_chart.png")
-                    if not df_plot.empty and "Koerpergewicht" in df_plot.columns and df_plot["Koerpergewicht"].sum() > 0:
+                    if not df_plot.empty and "Koerpergewicht" in df_plot.columns and pd.to_numeric(df_plot["Koerpergewicht"], errors='coerce').sum() > 0:
                         fig, ax = plt.subplots(figsize=(6.5, 2.2))
                         ax.plot(
-                            df_plot["Datum"], df_plot["Koerpergewicht"], marker="o", color="#2563eb",
+                            df_plot["Datum"], pd.to_numeric(df_plot["Koerpergewicht"], errors='coerce'), marker="o", color="#2563eb",
                             linewidth=2.5, markersize=6, markerfacecolor="#ffffff", markeredgewidth=2, markeredgecolor="#2563eb"
                         )
                         ax.set_title("Körpergewicht-Verlauf (kg)", fontsize=10, fontweight="bold", color="#1e293b", pad=10)
@@ -248,7 +239,7 @@ if not df_members.empty and "Name" in df_members.columns:
                         plt.close(fig)
 
                     chart_area_path = os.path.join(member_dir, "temp_area_chart.png")
-                    df_area_plot = df_plot[df_plot["Bereich"] == exercise_type]
+                    df_area_plot = df_plot[df_plot["Bereich"] == exercise_type] if not df_plot.empty else pd.DataFrame()
                     if not df_area_plot.empty:
                         fig, ax = plt.subplots(figsize=(6.5, 2.5))
                         plotted_cols = False
@@ -258,19 +249,19 @@ if not df_members.empty and "Name" in df_members.columns:
                             cols_to_plot = [c for c in ["Gewicht_Drueckende_Uebung", "Gewicht_Chinesische_Ruderbank", "Gewicht_Kniebeuge", "Gewicht_Kreuzheben"] if c in df_area_plot.columns]
                             if cols_to_plot:
                                 for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], df_area_plot[col], marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
+                                    ax.plot(df_area_plot["Datum"], pd.to_numeric(df_area_plot[col], errors='coerce'), marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
                                 plotted_cols = True
                         elif exercise_type == "Funktionelles Training":
                             cols_to_plot = [c for c in ["Sandsack_Gewicht", "KB_Wdh", "SS_Wdh"] if c in df_area_plot.columns]
                             if cols_to_plot:
                                 for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], df_area_plot[col], marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
+                                    ax.plot(df_area_plot["Datum"], pd.to_numeric(df_area_plot[col], errors='coerce'), marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
                                 plotted_cols = True
                         elif exercise_type == "Kondition":
                             cols_to_plot = [c for c in ["Tragen_Gewicht"] if c in df_area_plot.columns]
                             if cols_to_plot:
                                 for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], df_area_plot[col], marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
+                                    ax.plot(df_area_plot["Datum"], pd.to_numeric(df_area_plot[col], errors='coerce'), marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
                                 plotted_cols = True
 
                         if plotted_cols:
@@ -384,7 +375,6 @@ if not df_members.empty and "Name" in df_members.columns:
                     body_html = f"""
                     <html>
                     <body style="font-family: Arial, sans-serif; color: #333;">
-                        <!-- UNSICHTBARER PREHEADER FÜR DIE POSTEINGANGS-VORSCHAU -->
                         <div style="display:none;font-size:1px;color:#333333;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
                             Deine aktuelle Erfolgsmessung ist da! Sieh dir deine Fortschritte an.
                         </div>
@@ -399,7 +389,6 @@ if not df_members.empty and "Name" in df_members.columns:
                     """
                     msg_related.attach(MIMEText(body_html, "html", "utf-8"))
 
-                    # Cloud-taugliche Logo-Suche
                     possible_logo_paths = [
                         "Logo heller Hintergrund.jpg",
                         "pdfs/Logo heller Hintergrund.jpg",
@@ -432,18 +421,14 @@ if not df_members.empty and "Name" in df_members.columns:
                     server.quit()
                     
                     st.success(f"Die Auswertung wurde als PDF erfolgreich an {member_email} gesendet!")
-                except Exception as e:
-                    st.warning(f"Fehler beim E-Mail-Versand: {e}")
+            except Exception as e:
+                st.error(f"❌ Fehler bei der Verarbeitung/Speicherung: {e}")
 
     # --- ANZEIGE DER HISTORIE AM ENDE DER SEITE ---
     try:
-        df_history_show_all = conn.read(spreadsheet=SHEET_URL, worksheet="Historie", ttl=0)
-        df_history_show_all = df_history_show_all.dropna(how="all")
-        
-        if not df_history_show_all.empty and "Name" in df_history_show_all.columns:
-            df_history_show = df_history_show_all[df_history_show_all["Name"] == selected_member_name].copy()
-        else:
-            df_history_show = pd.DataFrame()
+        # Hier laden wir nur die Einträge von diesem speziellen Mitglied, anstatt die ganze Tabelle!
+        res_show = supabase.table("Historie").select("*").eq("Name", selected_member_name).execute()
+        df_history_show = pd.DataFrame(res_show.data)
     except Exception:
         df_history_show = pd.DataFrame()
 
@@ -456,18 +441,21 @@ if not df_members.empty and "Name" in df_members.columns:
         st.markdown("### Leistungs- und Gewichts-Visualisierung")
         df_filtered_chart = df_history_show.copy()
 
-        if not df_filtered_chart.empty and "Datum" in df_filtered_chart.columns:
+        if "Datum" in df_filtered_chart.columns:
             df_filtered_chart["Datum"] = pd.to_datetime(df_filtered_chart["Datum"])
             df_filtered_chart = df_filtered_chart.sort_values("Datum")
 
-            if "Koerpergewicht" in df_filtered_chart.columns and df_filtered_chart["Koerpergewicht"].sum() > 0:
-                st.markdown("#### Körpergewicht-Verlauf")
-                chart_kg = alt.Chart(df_filtered_chart).mark_line(point=True, strokeWidth=3).encode(
-                    x=alt.X('Datum:T', title='Kalendertag', axis=alt.Axis(format='%d.%m.%Y')),
-                    y=alt.Y('Koerpergewicht:Q', title='Gewicht (kg)', scale=alt.Scale(zero=False)),
-                    tooltip=['Datum:T', 'Koerpergewicht:Q']
-                ).interactive()
-                st.altair_chart(chart_kg, use_container_width=True)
+            # Körpergewicht in numerische Werte umwandeln für den Chart
+            if "Koerpergewicht" in df_filtered_chart.columns:
+                df_filtered_chart["Koerpergewicht"] = pd.to_numeric(df_filtered_chart["Koerpergewicht"], errors='coerce')
+                if df_filtered_chart["Koerpergewicht"].sum() > 0:
+                    st.markdown("#### Körpergewicht-Verlauf")
+                    chart_kg = alt.Chart(df_filtered_chart).mark_line(point=True, strokeWidth=3).encode(
+                        x=alt.X('Datum:T', title='Kalendertag', axis=alt.Axis(format='%d.%m.%Y')),
+                        y=alt.Y('Koerpergewicht:Q', title='Gewicht (kg)', scale=alt.Scale(zero=False)),
+                        tooltip=['Datum:T', 'Koerpergewicht:Q']
+                    ).interactive()
+                    st.altair_chart(chart_kg, use_container_width=True)
 
             df_area_chart = df_filtered_chart[df_filtered_chart["Bereich"] == exercise_type]
             if not df_area_chart.empty:
@@ -482,6 +470,10 @@ if not df_members.empty and "Name" in df_members.columns:
                     cols_to_plot = [c for c in ["Tragen_Gewicht"] if c in df_area_chart.columns]
                 
                 if cols_to_plot:
+                    # Werte vor dem Melt in numerisch umwandeln
+                    for col in cols_to_plot:
+                        df_area_chart[col] = pd.to_numeric(df_area_chart[col], errors='coerce')
+                        
                     df_melted = df_area_chart.melt(id_vars=["Datum"], value_vars=cols_to_plot, var_name="Übung", value_name="Wert")
                     
                     chart_area = alt.Chart(df_melted).mark_line(point=True, strokeWidth=3).encode(
@@ -494,4 +486,4 @@ if not df_members.empty and "Name" in df_members.columns:
     else:
         st.info("Noch keine Daten für Charts vorhanden.")
 else:
-    st.warning("Die zentrale Mitglieder-Datenbank konnte in Google Sheets nicht geladen werden oder ist leer.")
+    st.warning("Die zentrale Mitglieder-Datenbank konnte nicht aus Supabase geladen werden oder ist leer.")
