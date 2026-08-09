@@ -1,7 +1,6 @@
 import io
 import os
 import smtplib
-import time
 from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -42,12 +41,30 @@ with st.form("anmeldung_form"):
     st.subheader("🏋️ Training & Vertrag")
     col_t1, col_t2 = st.columns(2)
     with col_t1:
-        tarif = st.selectbox("Tarifauswahl", ["Basic", "Premium", "All-Inclusive", "10er Karte"])
+        tarif = st.selectbox(
+            "Tarifauswahl", 
+            [
+                "Kurse 2x wöchentlich 59€", 
+                "Kleingruppen-Personal-Training 1x wöchentlich 99€", 
+                "Kleingruppen-Personal-Training 2x wöchentich 179€"
+            ]
+        )
         erfahrung = st.selectbox("Bisherige Trainingserfahrung", ["Keine", "Anfänger", "Fortgeschritten", "Profi"])
     with col_t2:
         ziele = st.text_area("Ziele des Trainings")
 
     st.subheader("📄 Rechtliches & Zustimmung")
+    
+    st.markdown("""
+    **Allgemeine Vertragsbedingungen:**
+
+    • **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.
+
+    • **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.
+
+    • **Kündigungsfrist:** 2 Wochen zum Monatsende
+    """)
+    
     agb_akzeptiert = st.checkbox("Ich akzeptiere die Vertragsbedingungen und AGB.")
     datenschutz_akzeptiert = st.checkbox("Ich stimme der Datenverarbeitung gemäß Datenschutzerklärung zu.")
     haftungsausschluss = st.checkbox("Haftungsausschluss zur Kenntnis genommen.")
@@ -76,7 +93,7 @@ if submit_button:
         st.stop()
         
     if not agb_akzeptiert or not datenschutz_akzeptiert or not haftungsausschluss:
-        st.error("⚠️ Die AGB, Datenschutzerklärung und der Haftungsausschluss müssen akzeptiert werden!")
+        st.error("⚠️ Bitte bestätige alle rechtlichen Bedingungen (AGB, Datenschutz, Haftungsausschluss)!")
         st.stop()
 
     with st.spinner("Verarbeite Anmeldung... (Google Tabelle, E-Mail & Cloud werden synchronisiert)"):
@@ -184,17 +201,7 @@ if submit_button:
                 file_metadata_sig = {'name': 'Unterschrift.png', 'parents': [neu_ordner_id]}
                 drive_service.files().create(body=file_metadata_sig, media_body=media, fields='id').execute()
 
-            # --- WEITERLEITUNG ZUR ANAMNESE VORBEREITEN ---
-            st.session_state['anamnese_vorname'] = vorname
-            st.session_state['anamnese_nachname'] = nachname
-            st.session_state['anamnese_email'] = email
-            
-            st.success(f"🎉 {vorname} {nachname} wurde erfolgreich angelegt! Weiterleitung zur Anamnese...")
-            
+            st.success(f"🎉 {vorname} {nachname} wurde erfolgreich angelegt, die E-Mail verschickt und der Cloud-Ordner erstellt!")
+
         except Exception as e:
             st.error(f"❌ Fehler bei der Verarbeitung: {e}")
-            st.stop()
-            
-    # Kurze Pause für die Erfolgsmeldung, dann Seitenwechsel
-    time.sleep(2)
-    st.switch_page("pages/12_🩺_Anamnese.py")
