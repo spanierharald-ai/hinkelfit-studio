@@ -172,7 +172,10 @@ elif st.session_state.step == 2:
                     conn.update(spreadsheet=SHEET_URL, worksheet="Mitglieder", data=pd.concat([df, neues_mitglied], ignore_index=True))
 
                     # PDF generieren
-                # Unterschrift in Base64 umwandeln für das HTML-PDF
+               # Variablen vorab definieren (verhindert Python 3.11 f-String Syntaxfehler)
+                telefon_str = st.session_state.telefon if st.session_state.telefon else "Keine Angabe"
+                geburtsdatum_str = st.session_state.geburtsdatum if st.session_state.geburtsdatum else "Keine Angabe"
+
                 img_base64 = ""
                 if st.session_state.get("signature") is not None:
                     sig_img = Image.fromarray(
@@ -181,6 +184,8 @@ elif st.session_state.step == 2:
                     buffered = io.BytesIO()
                     sig_img.save(buffered, format="PNG")
                     img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+                sig_html = f'<img src="data:image/png;base64,{img_base64}" style="margin-top: 10px; border: 1px solid #ccc; width: 250px;">' if img_base64 else ""
 
                 # Professionelles HTML für den Vertrag erstellen
                 html_contract = f"""
@@ -205,8 +210,8 @@ elif st.session_state.step == 2:
                     <div class="field"><span class="label">Name:</span> {st.session_state.vorname} {st.session_state.nachname}</div>
                     <div class="field"><span class="label">Anschrift:</span> {st.session_state.adresse}</div>
                     <div class="field"><span class="label">E-Mail:</span> {st.session_state.email}</div>
-                    <div class="field"><span class="label">Telefon:</span> {st.session_state.telefon if st.session_state.telefon else 'Keine Angabe'}</div>
-                    <div class="field"><span class="label">Geburtsdatum:</span> {st.session_state.geburtsdatum if st.session_state.geburtsdatum else 'Keine Angabe'}</div>
+                    <div class="field"><span class="label">Telefon:</span> {telefon_str}</div>
+                    <div class="field"><span class="label">Geburtsdatum:</span> {geburtsdatum_str}</div>
                     
                     <h3>Gewählter Tarif & Konditionen</h3>
                     <div class="box">
@@ -218,7 +223,7 @@ elif st.session_state.step == 2:
                     
                     <h3>Digitale Unterschrift</h3>
                     <div class="field">Rechtsverbindlich digital unterschrieben von <strong>{st.session_state.vorname} {st.session_state.nachname}</strong> am {datetime.now().strftime('%d.%m.%Y')}</div>
-                    {'<img src="data:image/png;base64,' + img_base64 + '" style="margin-top: 10px; border: 1px solid #ccc; width: 250px;">' if img_base64 else ''}
+                    {sig_html}
                 </body>
                 </html>
                 """
