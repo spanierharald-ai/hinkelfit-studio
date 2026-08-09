@@ -22,14 +22,31 @@ if "password_correct" not in st.session_state or not st.session_state["password_
 
 # --- INITIALISIERUNG ---
 if "step" not in st.session_state: st.session_state.step = 1
-# Buttons für Status
+
+# Status-Flags initialisieren
 for key in ["agb_ok", "dsgvo_ok", "anamnese_bestaetigt"]:
-    if key not in st.session_state: st.session_state[key] = False
+    if key not in st.session_state: 
+        st.session_state[key] = False
+
+# Alle Anamnese-Schlüssel initialisieren, um KeyErrors zu verhindern
+health_keys = [
+    "Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen",
+    "Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden",
+    "Diabetes", "Asthma", "Krämpfe", "Epilepsie", "Organerkrankungen"
+]
+for k in health_keys:
+    if k not in st.session_state: 
+        st.session_state[k] = False
 
 # Session State für Stabilität der Eingaben
-defaults = {"vorname": "", "nachname": "", "geburtsdatum": "", "email": "", "telefon": "", "adresse": "", "tarif": "Kurse 2x wöchentlich, 59€ pro Monat", "ziele": [], "signature": None}
+defaults = {
+    "vorname": "", "nachname": "", "geburtsdatum": "", "email": "", 
+    "telefon": "", "adresse": "", "tarif": "Kurse 2x wöchentlich, 59€ pro Monat", 
+    "ziele": [], "signature": None
+}
 for key, val in defaults.items():
-    if key not in st.session_state: st.session_state[key] = val
+    if key not in st.session_state: 
+        st.session_state[key] = val
 
 # -------------------------------------------------------------------------
 # SCHRITT 1: ANMELDUNG
@@ -48,22 +65,34 @@ if st.session_state.step == 1:
         st.session_state.geburtsdatum = st.text_input("Geburtsdatum", value=st.session_state.geburtsdatum)
 
     st.subheader("🏋️ Tarif & Ziele")
-    st.session_state.tarif = st.selectbox("Wähle deinen Tarif:", [
+    tarife = [
         "Kurse 2x wöchentlich, 59€ pro Monat", 
         "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", 
         "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
-    ], index=["Kurse 2x wöchentlich, 59€ pro Monat", "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"].index(st.session_state.tarif))
+    ]
+    if st.session_state.tarif not in tarife:
+        st.session_state.tarif = tarife[0]
+
+    st.session_state.tarif = st.selectbox(
+        "Wähle deinen Tarif:", 
+        tarife, 
+        index=tarife.index(st.session_state.tarif)
+    )
     
-    st.session_state.ziele = st.multiselect("Was sind deine Hauptziele bei Hinkelfit?", ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], default=st.session_state.ziele)
+    st.session_state.ziele = st.multiselect(
+        "Was sind deine Hauptziele bei Hinkelfit?", 
+        ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], 
+        default=st.session_state.ziele
+    )
 
     st.subheader("📄 Vertrag & Zustimmung")
-    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können von dir bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
+    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung is nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können von dir bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
     
-    if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅"):
+    if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"):
         st.session_state.agb_ok = True
     
     st.info("""**Datenschutz:** Ich willige ausdrücklich ein, dass meine personenbezogenen Daten zur Verwaltung der Mitgliedschaft durch Hinkelfit verarbeitet werden.""")
-    if st.button("✅ Einwilligung Datenverarbeitung akzeptieren" if not st.session_state.dsgvo_ok else "Datenverarbeitung akzeptiert ✅"):
+    if st.button("✅ Einwilligung Datenverarbeitung akzeptieren" if not st.session_state.dsgvo_ok else "Datenverarbeitung akzeptiert ✅", key="btn_dsgvo"):
         st.session_state.dsgvo_ok = True
 
     st.subheader("🖋️ Digitale Unterschrift")
@@ -91,24 +120,28 @@ elif st.session_state.step == 2:
         st.session_state.step = 1
         st.rerun()
     
-    def btn_toggle(k): st.session_state[k] = not st.session_state[k]
+    def btn_toggle(k): 
+        st.session_state[k] = not st.session_state[k]
     
     st.subheader("1. Herz-Kreislauf-System und Gefäße")
     st.write("Leidest du unter Vorerkrankungen des Herz-Kreislauf-Systems?")
     for k in ["Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen"]:
-        if st.button(f"{k} {'✅' if st.session_state.get(k) else ''}", key=f"b_{k}"): btn_toggle(k)
+        if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
+            btn_toggle(k)
     cardio_other = st.text_input("Sonstiges / Weitere Details zu Herz-Kreislauf:")
 
     st.subheader("2. Bewegungsapparat, Gelenke und Wirbelsäule")
-    st.write("Haben Sie Beschwerden im Bereich des Bewegungsapparates?")
+    st.write("Hast du Beschwerden im Bereich des Bewegungsapparates?")
     for k in ["Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden"]:
-        if st.button(f"{k} {'✅' if st.session_state.get(k) else ''}", key=f"b_{k}"): btn_toggle(k)
+        if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
+            btn_toggle(k)
     ms_other = st.text_input("Sonstiges / Weitere Details zum Bewegungsapparat:")
 
     st.subheader("3. Stoffwechsel, Organe und Atmung")
     st.write("Liegen bei dir Stoffwechsel- oder Atemwegserkrankungen vor?")
     for k in ["Diabetes", "Asthma", "Krämpfe", "Epilepsie", "Organerkrankungen"]:
-        if st.button(f"{k} {'✅' if st.session_state.get(k) else ''}", key=f"b_{k}"): btn_toggle(k)
+        if st.button(f"{k} {'✅' if st.session_state.get(k, False) else ''}", key=f"b_{k}"): 
+            btn_toggle(k)
     met_other = st.text_input("Sonstiges / Weitere Details zu Stoffwechsel & Organen:")
 
     st.subheader("4. Operationen, Verletzungen und Medikamente")
@@ -153,6 +186,9 @@ elif st.session_state.step == 3:
     st.balloons()
     st.success("🎉 Registrierung erfolgreich!")
     if st.button("🔄 Neues Mitglied"):
-         for key in ["step", "agb_ok", "dsgvo_ok", "anamnese_bestaetigt"]: st.session_state[key] = (1 if key == "step" else False)
-         st.session_state.vorname = ""; st.session_state.nachname = ""; st.session_state.email = ""
+         for key in ["step", "agb_ok", "dsgvo_ok", "anamnese_bestaetigt"] + health_keys: 
+             st.session_state[key] = (1 if key == "step" else False)
+         st.session_state.vorname = ""
+         st.session_state.nachname = ""
+         st.session_state.email = ""
          st.rerun()
