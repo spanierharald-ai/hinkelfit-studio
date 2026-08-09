@@ -21,24 +21,23 @@ if "password_correct" not in st.session_state or not st.session_state["password_
     st.stop()
 
 # --- INITIALISIERUNG ---
-if "step" not in st.session_state: st.session_state.step = 1
+if "step" not in st.session_state: 
+    st.session_state.step = 1
 
-# Status-Flags initialisieren
 for key in ["agb_ok", "dsgvo_ok", "anamnese_bestaetigt"]:
     if key not in st.session_state: 
         st.session_state[key] = False
 
-# Alle Anamnese-Schlüssel initialisieren, um KeyErrors zu verhindern
+# Anamnese-Schlüssel sauber initialisieren
 health_keys = [
     "Bluthochdruck", "Herzinfarkt", "Schlaganfall", "Herzrhythmusstörungen",
     "Rückenbeschwerden", "Gelenkbeschwerden", "Künstliches Gelenk", "Sonstige Wirbelsäulenbeschwerden",
-    "Diabetes", "Asthma", "Krämpfe", "Epilepsie", "Organerkrankungen"
+    "Diabetes", "Asthma", "Neigung zu Krämpfen", "Epilepsie", "Organerkrankungen"
 ]
 for k in health_keys:
     if k not in st.session_state: 
         st.session_state[k] = False
 
-# Session State für Stabilität der Eingaben
 defaults = {
     "vorname": "", "nachname": "", "geburtsdatum": "", "email": "", 
     "telefon": "", "adresse": "", "tarif": "Kurse 2x wöchentlich, 59€ pro Monat", 
@@ -86,7 +85,7 @@ if st.session_state.step == 1:
     )
 
     st.subheader("📄 Vertrag & Zustimmung")
-    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung is nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können von dir bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
+    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können von dir bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
     
     if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"):
         st.session_state.agb_ok = True
