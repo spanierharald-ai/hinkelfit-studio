@@ -24,9 +24,17 @@ if df_members.empty:
     st.warning("Keine Mitglieder in der Datenbank gefunden.")
     st.stop()
 
+# --- TYP-KONFLIKTE VERHINDERN ---
+# Zwingt Pandas dazu, diese Spalten als flexiblen Text (object) zu behandeln.
+# Verhindert Abstürze, wenn leere Spalten fälschlicherweise als Zahlen-Spalten erkannt wurden.
+text_columns = ['Vorname', 'Nachname', 'E-Mail', 'Adresse', 'Tarif', 'Status', 'Notizen']
+for col in text_columns:
+    if col in df_members.columns:
+        df_members[col] = df_members[col].astype(object)
+
 # --- SAUBERE LÖSUNG: Hilfsspalte "Name" für die Suche/Anzeige ---
 if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
-    df_members["Name"] = df_members["Vorname"] + " " + df_members["Nachname"]
+    df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
 else:
     df_members["Name"] = "Unbekannt"
 
@@ -37,6 +45,7 @@ if "Status" not in df_members.columns:
     needs_update = True
 if "Notizen" not in df_members.columns:
     df_members["Notizen"] = ""
+    df_members['Notizen'] = df_members['Notizen'].astype(object)
     needs_update = True
     
 if needs_update:
@@ -81,10 +90,10 @@ if selected_member_str:
         
         with col1:
             # An die echte Datenbank-Struktur angepasst (Vorname/Nachname getrennt)
-            new_vorname = st.text_input("Vorname:", value=str(row.get('Vorname', '')))
-            new_nachname = st.text_input("Nachname:", value=str(row.get('Nachname', '')))
-            new_email = st.text_input("E-Mail-Adresse:", value=str(row.get('E-Mail', '')))
-            new_adresse = st.text_area("Adresse:", value=str(row.get('Adresse', '')))
+            new_vorname = st.text_input("Vorname:", value=str(row.get('Vorname', '')).replace('nan', ''))
+            new_nachname = st.text_input("Nachname:", value=str(row.get('Nachname', '')).replace('nan', ''))
+            new_email = st.text_input("E-Mail-Adresse:", value=str(row.get('E-Mail', '')).replace('nan', ''))
+            new_adresse = st.text_area("Adresse:", value=str(row.get('Adresse', '')).replace('nan', ''))
             
         with col2:
             # Tarife exakt an die Formulierungen aus der Anmeldung angepasst
@@ -102,7 +111,7 @@ if selected_member_str:
             status_index = available_statuses.index(current_status) if current_status in available_statuses else 0
             new_status = st.selectbox("Status:", available_statuses, index=status_index)
             
-            new_notes = st.text_area("Notizen / Historie:", value=str(row.get('Notizen', '')))
+            new_notes = st.text_area("Notizen / Historie:", value=str(row.get('Notizen', '')).replace('nan', ''))
             
         submit_edit = st.form_submit_button("💾 Änderungen in die Cloud speichern")
         
