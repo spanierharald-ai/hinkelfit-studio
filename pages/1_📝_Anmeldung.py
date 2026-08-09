@@ -96,7 +96,7 @@ if st.session_state.step == 1:
     if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"): 
         st.session_state.agb_ok = True
 
-    st.info("""**Datenschutz (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt im geschützten Cloud-Speicher. Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
+    st.info("""**Datenschutz (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt in einer gesicherten Cloud-Datenbank (Supabase). Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
     
     if st.button("✅ Datenschutzerklärung akzeptieren" if not st.session_state.dsgvo_ok else "Datenschutz akzeptiert ✅", key="btn_dsgvo"): 
         st.session_state.dsgvo_ok = True
@@ -198,11 +198,25 @@ elif st.session_state.step == 2:
                         all_notes.append(f"OPs/Meds: {surgeries_meds}")
                     warnhinweis = ", ".join(all_notes)
 
-                    # --- DATEN IN SUPABASE SPEICHERN ---
-                    # 1. Zählen wie viele Mitglieder es gibt, um die nächste ID zu berechnen
+                    # --- DATEN IN SUPABASE SPEICHERN (SICHERE ID-GENERIERUNG) ---
                     response = supabase.table("Mitglieder").select("Mitglieder_ID").execute()
-                    bisherige_mitglieder = len(response.data)
-                    neue_id = f"HF-{(bisherige_mitglieder + 1):03d}"
+                    daten = response.data
+                    
+                    if daten:
+                        # Extrahiere die Nummern aus allen bestehenden IDs (z.B. "HF-017" -> 17)
+                        ids = []
+                        for row in daten:
+                            m_id = row.get("Mitglieder_ID", "")
+                            if "-" in m_id:
+                                try:
+                                    ids.append(int(m_id.split("-")[1]))
+                                except ValueError:
+                                    pass
+                        naechste_nr = max(ids) + 1 if ids else 1
+                    else:
+                        naechste_nr = 1
+                        
+                    neue_id = f"HF-{naechste_nr:03d}"
 
                     # 2. Dictionary mit den neuen Daten bauen
                     neues_mitglied = {
@@ -256,7 +270,7 @@ elif st.session_state.step == 2:
                     </head>
                     <body>
                         <h1>Hinkelfit – Mitgliedschaftsvertrag</h1>
-                        <div class="field"><span class="label">Dienstleister:</span> Hinkelfit (Inh. Harald Spanier), Papiermühlweg 27, 89407 Wittislingen</div>
+                        <div class="field"><span class="label">Dienstleister:</span> Hinkelfit (Inh. Harald Spanier), Papiermühlweg 27, 89426 Wittislingen</div>
                         <div class="field"><span class="label">Vertragsdatum:</span> {heute}</div>
                         
                         <h3>Mitgliedsdaten</h3>
