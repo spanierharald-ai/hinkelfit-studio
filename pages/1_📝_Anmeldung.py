@@ -35,7 +35,7 @@ def reset_app():
         st.session_state[key] = (1 if key == "step" else False)
     for k in health_keys: 
         st.session_state[k] = False
-    for key in ["vorname", "nachname", "email", "telefon", "adresse", "geburtsdatum", "signature", "pdf_bytes"]:
+    for key in ["vorname", "nachname", "email", "telefon", "adresse", "geburtsdatum", "signature", "pdf_bytes", "final_tarif"]:
         st.session_state[key] = ("" if key not in ["signature", "pdf_bytes"] else None)
     st.session_state.ziele = []
 
@@ -76,14 +76,34 @@ if st.session_state.step == 1:
 
     st.subheader("🏋️ Tarif & Ziele")
     tarife = [
-        "Kurse 2x wöchentlich, 59€ pro Monat", 
-        "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat", 
-        "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
+        "Kurse: 1x wöchentlich 59€ pro Monat", 
+        "Kleingruppen-Personaltraining 2x wöchentlich 179€ im Monat", 
+        "Power Workshop 1x wöchentlich 99€ im Monat",
+        "Firmenfitness (80€ je Stunde für alle 4 Mitarbeiter)"
     ]
     if st.session_state.get("tarif") not in tarife: 
         st.session_state.tarif = tarife[0]
         
     st.session_state.tarif = st.selectbox("Wähle deinen Tarif:", tarife, index=tarife.index(st.session_state.tarif))
+    
+    # NEU: Dynamische Berechnung für Firmenfitness
+    final_tarif_wert = st.session_state.tarif
+    if st.session_state.tarif == "Firmenfitness (80€ je Stunde für alle 4 Mitarbeiter)":
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            mitarbeiter = st.number_input("Anzahl der Mitarbeiter (in 4er Schritten):", min_value=4, step=4, value=4)
+        with col_f2:
+            stunden = st.number_input("Stunden pro Woche:", min_value=1, step=1, value=1)
+            
+        gruppen = mitarbeiter / 4
+        wochen_summe = gruppen * 80 * stunden
+        monats_summe = wochen_summe * 4  # (Ausgehend von 4 Wochen pro Monat)
+        
+        st.success(f"**Berechnete Endsumme:** {monats_summe:.2f} € pro Monat (entspricht {wochen_summe:.2f} € / Woche)")
+        final_tarif_wert = f"Firmenfitness ({int(mitarbeiter)} MA, {int(stunden)} Std./Woche) - {monats_summe:.2f} € / Monat"
+
+    st.session_state.final_tarif = final_tarif_wert
+
     st.session_state.ziele = st.multiselect(
         "Was sind deine Hauptziele bei Hinkelfit?", 
         ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], 
@@ -231,7 +251,7 @@ elif st.session_state.step == 2:
                         "E-Mail": st.session_state.email,
                         "Telefon": st.session_state.telefon, 
                         "Adresse": st.session_state.adresse,
-                        "Tarif": st.session_state.tarif, 
+                        "Tarif": st.session_state.final_tarif, 
                         "Ziele": ", ".join(st.session_state.ziele), 
                         "Gesundheits_Notizen": warnhinweis
                     }
@@ -303,7 +323,7 @@ elif st.session_state.step == 2:
                         email=st.session_state.email,
                         telefon=telefon_str,
                         geburtsdatum=geburtsdatum_str,
-                        tarif=st.session_state.tarif,
+                        tarif=st.session_state.final_tarif,
                         sig_tag=sig_html
                     )
 
