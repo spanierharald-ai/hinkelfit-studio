@@ -35,7 +35,7 @@ def reset_app():
         st.session_state[key] = (1 if key == "step" else False)
     for k in health_keys: 
         st.session_state[k] = False
-    for key in ["vorname", "nachname", "email", "telefon", "adresse", "geburtsdatum", "signature", "pdf_bytes", "final_tarif"]:
+    for key in ["vorname", "nachname", "email", "telefon", "adresse", "geburtsdatum", "vertragsstart", "signature", "pdf_bytes", "final_tarif"]:
         st.session_state[key] = ("" if key not in ["signature", "pdf_bytes"] else None)
     st.session_state.ziele = []
 
@@ -109,14 +109,25 @@ if st.session_state.step == 1:
         ["Kraftaufbau & Muskelaufbau", "Fettabbau / Allgemeine Fitness", "Gesunder Rücken / Schmerzfreiheit", "Ausdauer verbessern", "Kleingruppen-Personaltraining"], 
         default=st.session_state.get("ziele", [])
     )
+    
+    st.markdown("---")
+    st.subheader("🗓️ Vertragsbeginn")
+    st.session_state.vertragsstart = st.date_input("Ab wann soll der Vertrag gültig sein?", value=datetime.today())
 
     st.subheader("📄 Vertrag & Allgemeine Bedingungen")
-    st.info("""**Allgemeine Vertragsbedingungen:**\n\n• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.\n\n• **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.\n\n• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
+    st.info("""**Allgemeine Vertragsbedingungen:**
+
+• **Zahlung & Rechnungsstellung:** Die Vergütung ist nach Rechnungsstellung **sofort** per Überweisung auf das in der Rechnung angegebene Bankkonto zu entrichten.
+
+• **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.
+
+• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
     
     if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"): 
         st.session_state.agb_ok = True
 
-    st.info("""**Datenschutz (Art. 9 DSGVO):**\nDas Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt in einer gesicherten Cloud-Datenbank (Supabase). Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
+    st.info("""**Datenschutz (Art. 9 DSGVO):**
+Das Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbezogene Daten von Hinkelfit (Harald Spanier) zur individuellen Trainingsplanung und -betreuung verarbeitet werden. Die Speicherung der digitalen Kundenakte erfolgt in einer gesicherten Cloud-Datenbank (Supabase). Diese Einwilligung kann jederzeit mit Wirkung für die Zukunft widerrufen werden.""")
     
     if st.button("✅ Datenschutzerklärung akzeptieren" if not st.session_state.dsgvo_ok else "Datenschutz akzeptiert ✅", key="btn_dsgvo"): 
         st.session_state.dsgvo_ok = True
@@ -175,25 +186,34 @@ elif st.session_state.step == 2:
     st.markdown("---")
     
     st.subheader("5. Wahrheitspflicht")
-    st.info("""**Wahrheitsgemäße Angaben:**\n
-• **Wahrheitspflicht:** Das Mitglied versichert, dass alle Angaben im Anamnesebogen vollständig und wahrheitsgemäß gemacht wurden. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.\n
+    st.info("""**Wahrheitsgemäße Angaben:**
+
+• **Wahrheitspflicht:** Das Mitglied versichert, dass alle Angaben im Anamnesebogen vollständig und wahrheitsgemäß gemacht wurden. Veränderungen des Gesundheitszustandes sind dem Trainer vor jedem Training unaufgefordert mitzuteilen.
+
 • **Ärztliche Abklärung:** Bei Zweifeln an der gesundheitlichen Eignung verpflichtet sich das Mitglied, vor der Teilnahme einen Arzt zu konsultieren.""")
     if st.button("✅ Wahrheitspflicht bestätigen" if not st.session_state.wahrheit_ok else "Wahrheitspflicht bestätigt ✅", key="btn_wahrheit"): 
         st.session_state.wahrheit_ok = True
 
     st.subheader("6. Risikoaufklärung")
-    st.info("""**Risikoaufklärung:**\n
-• **Körperliche Belastung:** Dem Mitglied ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.\n
-• **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.\n
+    st.info("""**Risikoaufklärung:**
+
+• **Körperliche Belastung:** Dem Mitglied ist bekannt, dass intensives Kraft-, Ausdauer- und Funktionstraining mit hohen körperlichen Belastungen verbunden ist.
+
+• **Verletzungsrisiko:** Trotz fachgerechter Anleitung und korrekter Übungsausführung können Verletzungen (z. B. Muskel-, Sehnen- und Gelenkverletzungen) nicht gänzlich ausgeschlossen werden.
+
 • **Sofortiger Trainingsstopp:** Das Mitglied verpflichtet sich, das Training bei Schwindel, Unwohlsein oder akuten Schmerzen sofort abzubrechen und den Trainer zu informieren.""")
     if st.button("✅ Risikoaufklärung bestätigen" if not st.session_state.risiko_ok else "Risikoaufklärung bestätigt ✅", key="btn_risiko"): 
         st.session_state.risiko_ok = True
 
     st.subheader("7. Haftungsausschluss")
-    st.info("""**Haftungsbeschränkung:**\n
-• **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.\n
-• **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.\n
-• **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.\n
+    st.info("""**Haftungsbeschränkung:**
+
+• **Körperschäden:** Der Dienstleister haftet unbeschränkt für Schäden aus der Verletzung des Lebens, des Körpers oder der Gesundheit, die auf einer vorsätzlichen oder fahrlässigen Pflichtverletzung beruhen.
+
+• **Sach- und Vermögensschäden:** Für sonstige Schäden haftet der Dienstleister nur bei Vorsatz oder grober Fahrlässigkeit. Bei leicht fahrlässiger Verletzung wesentlicher Vertragspflichten ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt.
+
+• **Wertgegenstände:** Für den Verlust oder Diebstahl von mitgebrachten Kleidungsstücken und Wertgegenständen wird keine Haftung übernommen.
+
 • **Befolgen von Anweisungen:** Den Anweisungen des Trainers bezüglich Übungsausführung und Sicherheitsbestimmungen ist stets Folge zu leisten. Eigenmächtiges Abweichen erfolgt auf eigene Gefahr.""")
     if st.button("✅ Haftungsausschluss bestätigen" if not st.session_state.haftung_ok else "Haftungsausschluss bestätigt ✅", key="btn_haftung"): 
         st.session_state.haftung_ok = True
@@ -244,7 +264,7 @@ elif st.session_state.step == 2:
                         "Status": "Aktiv",
                         "Kündigungs_Eingang": "",
                         "Vertrags_Ende": "",
-                        "Datum": datetime.now().strftime("%d.%m.%Y"),
+                        "Datum": st.session_state.vertragsstart.strftime("%d.%m.%Y"),
                         "Vorname": st.session_state.vorname, 
                         "Nachname": st.session_state.nachname,
                         "Geburtsdatum": st.session_state.geburtsdatum, 
@@ -291,7 +311,8 @@ elif st.session_state.step == 2:
                     <body>
                         <h1>Hinkelfit – Mitgliedschaftsvertrag</h1>
                         <div class="field"><span class="label">Dienstleister:</span> Hinkelfit (Inh. Harald Spanier), Papiermühlweg 27, 89426 Wittislingen</div>
-                        <div class="field"><span class="label">Vertragsdatum:</span> {heute}</div>
+                        <div class="field"><span class="label">Vertragsabschluss am:</span> {heute}</div>
+                        <div class="field"><span class="label">Vertragsbeginn (Gültig ab):</span> {vertragsstart}</div>
                         
                         <h3>Mitgliedsdaten</h3>
                         <div class="field"><span class="label">Name:</span> {vorname} {nachname}</div>
@@ -315,8 +336,10 @@ elif st.session_state.step == 2:
                     </html>
                     """
 
+                    vertragsstart_str = st.session_state.vertragsstart.strftime('%d.%m.%Y')
                     html_contract = html_template.format(
                         heute=heute_str,
+                        vertragsstart=vertragsstart_str,
                         vorname=st.session_state.vorname,
                         nachname=st.session_state.nachname,
                         adresse=st.session_state.adresse,
