@@ -2,6 +2,7 @@ import datetime
 import pandas as pd
 import streamlit as st
 from supabase import create_client
+import re
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Anwesenheit", page_icon="📍", layout="wide")
@@ -50,7 +51,7 @@ except Exception:
 
 
 # --- TABS DEFINIEREN ---
-tab1, tab2 = st.tabs(["📅 Kurs-Check-in nach Terminplan", "📊 Inaktivitäts-Check"])
+tab1, tab2 = st.tabs(["📅 Kurs-Check-in (Auto-Save)", "📊 Inaktivitäts-Check"])
 
 
 # -------------------------------------------------------------------------
@@ -58,7 +59,7 @@ tab1, tab2 = st.tabs(["📅 Kurs-Check-in nach Terminplan", "📊 Inaktivitäts-
 # -------------------------------------------------------------------------
 with tab1:
     st.header("Check-in via Terminplan")
-    st.write("Wähle das Datum aus. Das System zeigt dir alle geplanten Termine/Kurse an diesem Tag und die dafür eingetragenen Teilnehmer.")
+    st.write("Wähle das Datum aus. Klicke auf ein Mitglied, um es ein- oder auszuchecken. Die Daten werden sofort **live gespeichert** (Auto-Save).")
     
     col_d1, col_d2 = st.columns([2, 3])
     with col_d1:
@@ -108,51 +109,47 @@ with tab1:
                     
                     teilnehmer_list = [t.strip() for t in teilnehmer_raw.split(",") if t.strip()]
                     
-                    # Absolut fehlerfreier Form-Key über den Tabellen-Index
-                    with st.form(f"checkin_form_{t_idx}"):
-                        checked_participants = {}
-                        cols = st.columns(min(len(teilnehmer_list), 3) if len(teilnehmer_list) > 0 else 1)
+                    # Spalten für die Checkboxen aufbauen
+                    cols = st.columns(min(len(teilnehmer_list), 3) if len(teilnehmer_list) > 0 else 1)
+                    
+                    for p_idx, participant in enumerate(teilnehmer_list):
+                        c_idx = p_idx % 3
+                        is_present = participant in already_checked_names
                         
-                        for p_idx, participant in enumerate(teilnehmer_list):
-                            c_idx = p_idx % 3
-                            is_present = participant in already_checked_names
+                        with cols[c_idx]:
+                            # ECHTZEIT CHECKBOX (ohne Formular)
+                            checked = st.checkbox(
+                                participant, 
+                                value=is_present, 
+                                key=f"att_chk_{db_termin_id}_{p_idx}"
+                            )
                             
-                            with cols[c_idx]:
-                                # Absolut fehlerfreier Checkbox-Key
-                                checked_participants[participant] = st.checkbox(
-                                    participant, 
-                                    value=is_present, 
-                                    key=f"att_chk_{t_idx}_{p_idx}"
-                                )
-                        
-                        submit_session = st.form_submit_button(f"💾 Anwesenheit für '{termin_titel}' in Cloud speichern")
-                        
-                        if submit_session:
-                            for name, checked in checked_participants.items():
+                            # Auto-Save Logik: Löst sofort aus, wenn sich der Haken ändert
+                            if checked != is_present:
                                 m_id = "-"
                                 if not df_members.empty:
-                                    match = df_members[df_members["Name"] == name]
+                                    match = df_members[df_members["Name"] == participant]
                                     if not match.empty:
                                         m_id = str(match.iloc[0]["Mitglieder_ID"])
                                 
-                                # Alten Eintrag für EXAKT diesen Termin löschen
-                                supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", db_termin_id).execute()
-                                
-                                # Falls alter Termin: Sicherheitshalber auch leere IDs des Mitglieds bereinigen
-                                if raw_t_id in ["", "nan", "None"]:
-                                    supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", "").execute()
-                                
-                                # Wenn Haken gesetzt, neu in die Cloud schreiben
                                 if checked:
+                                    # Neu in die Cloud eintragen
                                     supabase.table("Anwesenheit").insert({
                                         "Datum": date_str, 
                                         "Mitglieder_ID": m_id, 
-                                        "Name": name, 
+                                        "Name": participant, 
                                         "Termin_ID": db_termin_id
                                     }).execute()
-                            
-                            st.success(f"Anwesenheit für '{termin_titel}' am {date_str} aktualisiert!")
-                            st.rerun()
+                                else:
+                                    # Aus der Cloud löschen
+                                    supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", participant).eq("Termin_ID", db_termin_id).execute()
+                                    # Legacy (alte Daten) zur Sicherheit auch bereinigen
+                                    if raw_t_id in ["", "nan", "None"]:
+                                        supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", participant).eq("Termin_ID", "").execute()
+                                
+                                # Seite unsichtbar neu laden, um die Werte fest zu verankern
+                                st.rerun()
+
         else:
             st.info(f"Für den {selected_date.strftime('%d.%m.%Y')} sind keine Termine/Kurse im Planer eingetragen.")
     else:
