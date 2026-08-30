@@ -2,6 +2,7 @@ import datetime
 import pandas as pd
 import streamlit as st
 from supabase import create_client
+import re
 
 # Seitenkonfiguration
 st.set_page_config(page_title="Hinkelfit Anwesenheit", page_icon="📍", layout="wide")
@@ -26,7 +27,6 @@ except Exception as e:
     df_members = pd.DataFrame()
 
 if not df_members.empty:
-    # --- SAUBERE LÖSUNG: Hilfsspalte "Name" für die Abgleiche anlegen ---
     if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
         df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
     else:
@@ -70,52 +70,61 @@ with tab1:
     st.markdown("---")
     
     if not df_termine.empty:
-        # Finde alle Termine für dieses Datum
-        df_day_termine = df_termine[df_termine["Datum"] == date_str]
+        df_day_termine = df_termine[df_termine["Datum"] == date_str].copy()
         
         if not df_day_termine.empty:
-            for t_idx, t_row in df_day_termine.iterrows():
-                termin_titel = t_row.get("Art", "Training / Kurs") 
-                uhrzeit = t_row.get("Uhrzeit", "00:00")
+            # Nach Uhrzeit sortieren, um eine absolut stabile Reihenfolge für die Keys zu garantieren
+            df_day_termine = df_day_termine.sort_values("Uhrzeit")
+            
+            for loop_idx, (t_idx, t_row) in enumerate(df_day_termine.iterrows()):
+                termin_titel = str(t_row.get("Art", "Training / Kurs")).strip()
+                uhrzeit = str(t_row.get("Uhrzeit", "00:00")).strip()
                 teilnehmer_raw = str(t_row.get("Teilnehmer", ""))
                 
-                # SICHERHEITS-CHECK: Falls es ein "alter" Termin ohne Termin_ID ist, baue eine eindeutige ID
-                raw_termin_id = str(t_row.get("Termin_ID", ""))
-                if raw_termin_id.strip() in ["", "nan", "None"]:
-                    termin_id = f"alt_{uhrzeit}_{termin_titel}".replace(" ", "_")
+                # Eindeutige und saubere ID generieren (hilft gegen doppelte Keys in Streamlit)
+                raw_termin_id = str(t_row.get("Termin_ID", "")).strip()
+                if raw_termin_id in ["", "nan", "None"]:
+                    termin_id = f"legacy_{date_str}_{uhrzeit.replace(':', '')}_{loop_idx}"
                 else:
-                    termin_id = raw_termin_id
+                    # Entferne eventuelle Sonderzeichen aus der ID für den Key
+                    termin_id = re.sub(r'[^a-zA-Z0-9_-]', '', raw_termin_id)
                 
-                # Bereits eingecheckte Personen für EXAKT DIESEN Termin holen
+                # Bereits eingecheckte Personen abrufen
                 already_checked_names = []
-                if not df_att.empty and "Termin_ID" in df_att.columns:
-                    already_checked_names = df_att[(df_att["Datum"] == date_str) & (df_att["Termin_ID"].isin([termin_id, raw_termin_id]))]["Name"].tolist()
-                elif not df_att.empty and "Datum" in df_att.columns:
-                    # Fallback, falls alte Daten noch keine Termin_ID hatten
-                    already_checked_names = df_att[df_att["Datum"] == date_str]["Name"].tolist()
+                if not df_att.empty:
+                    df_att_today = df_att[df_att["Datum"] == date_str]
+                    if "Termin_ID" in df_att_today.columns:
+                        exact_matches = df_att_today[df_att_today["Termin_ID"] == termin_id]["Name"].tolist()
+                        legacy_matches = []
+                        if "legacy" in termin_id:
+                            legacy_matches = df_att_today[df_att_today["Termin_ID"].isin(["", "nan", "None", None])]["Name"].tolist()
+                        already_checked_names = list(set(exact_matches + legacy_matches))
+                    else:
+                        already_checked_names = df_att_today["Name"].tolist()
                 
                 with st.expander(f"🏋️‍♂️ {uhrzeit} Uhr – {termin_titel} (Teilnehmer: {teilnehmer_raw})", expanded=True):
                     if not teilnehmer_raw.strip():
                         st.warning("Für diesen Termin sind noch keine Teilnehmer im Kalender eingetragen.")
                         continue
                     
-                    # Teilnehmerliste aufteilen
                     teilnehmer_list = [t.strip() for t in teilnehmer_raw.split(",") if t.strip()]
                     
+                    # Form Key muss einzigartig sein
                     with st.form(f"form_termin_{termin_id}"):
                         checked_participants = {}
                         cols = st.columns(min(len(teilnehmer_list), 3) if len(teilnehmer_list) > 0 else 1)
                         
                         for p_idx, participant in enumerate(teilnehmer_list):
                             c_idx = p_idx % 3
-                            # Ist die Person in DIESEM spezifischen Kurs anwesend?
                             is_already_present = participant in already_checked_names
                             
                             with cols[c_idx]:
+                                # Eindeutigen Key generieren
+                                widget_key = f"chk_{termin_id}_{p_idx}"
                                 checked_participants[participant] = st.checkbox(
-                                    f"{participant}", 
+                                    participant, 
                                     value=is_already_present, 
-                                    key=f"chk_{termin_id}_{p_idx}"
+                                    key=widget_key
                                 )
                         
                         submit_session = st.form_submit_button(f"💾 Anwesenheit für '{termin_titel}' in Cloud speichern")
@@ -128,14 +137,14 @@ with tab1:
                                     if not match_row.empty:
                                         m_id = str(match_row.iloc[0]["Mitglieder_ID"])
                                 
-                                # Supabase: Löscht den Anwesenheitseintrag gezielt NUR FÜR DIESEN TERMIN
+                                # Alten Eintrag für EXAKT diesen Termin löschen
                                 supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", termin_id).execute()
                                 
-                                # Falls es ein alter Termin ist, löschen wir sicherheitshalber auch leere Einträge dieses Mitglieds heute
-                                if raw_termin_id.strip() in ["", "nan", "None"]:
+                                # Falls Legacy-Termin: auch leere Termin_IDs für diese Person an diesem Tag löschen
+                                if "legacy" in termin_id:
                                     supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", "").execute()
                                 
-                                # Wenn anwesend, neu eintragen (jetzt immer inkl. Termin_ID)
+                                # Wenn Haken gesetzt, neu in die Cloud schreiben
                                 if is_present:
                                     supabase.table("Anwesenheit").insert({
                                         "Datum": date_str, 
@@ -144,7 +153,7 @@ with tab1:
                                         "Termin_ID": termin_id
                                     }).execute()
                             
-                            st.success(f"Anwesenheit für '{termin_titel}' erfolgreich in der Cloud aktualisiert!")
+                            st.success(f"Anwesenheit für '{termin_titel}' am {date_str} aktualisiert!")
                             st.rerun()
         else:
             st.info(f"Für den {selected_date.strftime('%d.%m.%Y')} sind keine Termine/Kurse im Planer eingetragen.")
