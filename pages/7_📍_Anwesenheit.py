@@ -27,7 +27,6 @@ except Exception as e:
     df_members = pd.DataFrame()
 
 if not df_members.empty:
-    # --- SAUBERE LÖSUNG: Hilfsspalte "Name" für die Abgleiche anlegen ---
     if "Vorname" in df_members.columns and "Nachname" in df_members.columns:
         df_members["Name"] = df_members["Vorname"].astype(str) + " " + df_members["Nachname"].astype(str)
     else:
@@ -49,9 +48,13 @@ try:
 except Exception:
     df_att = pd.DataFrame(columns=["Datum", "Mitglieder_ID", "Name", "Termin_ID"])
 
+# Fallback, falls die Spalte in Supabase noch fehlt
+if "Termin_ID" not in df_att.columns:
+    df_att["Termin_ID"] = ""
+
 
 # --- TABS DEFINIEREN ---
-tab1, tab2 = st.tabs(["📅 Kurs-Check-in (Auto-Save)", "📊 Inaktivitäts-Check"])
+tab1, tab2 = st.tabs(["📅 Kurs-Check-in nach Terminplan", "📊 Inaktivitäts-Check"])
 
 
 # -------------------------------------------------------------------------
@@ -59,7 +62,7 @@ tab1, tab2 = st.tabs(["📅 Kurs-Check-in (Auto-Save)", "📊 Inaktivitäts-Chec
 # -------------------------------------------------------------------------
 with tab1:
     st.header("Check-in via Terminplan")
-    st.write("Wähle das Datum aus. Klicke auf ein Mitglied, um es ein- oder auszuchecken. Die Daten werden sofort **live gespeichert** (Auto-Save).")
+    st.write("Wähle das Datum aus. Klicke auf die Teilnehmer und speichere die Anwesenheit pro Kurs ab.")
     
     col_d1, col_d2 = st.columns([2, 3])
     with col_d1:
@@ -71,36 +74,32 @@ with tab1:
     st.markdown("---")
     
     if not df_termine.empty:
-        # Finde alle Termine für dieses Datum
         df_day_termine = df_termine[df_termine["Datum"] == date_str].copy()
         
         if not df_day_termine.empty:
-            df_day_termine = df_day_termine.sort_values("Uhrzeit")
+            df_day_termine = df_day_termine.sort_values("Uhrzeit").reset_index(drop=True)
             
             for t_idx, t_row in df_day_termine.iterrows():
                 termin_titel = str(t_row.get("Art", "Training / Kurs")).strip()
                 uhrzeit = str(t_row.get("Uhrzeit", "00:00")).strip()
                 teilnehmer_raw = str(t_row.get("Teilnehmer", ""))
                 
-                # Saubere Zuweisung einer Termin-ID für die Datenbank
+                # Eindeutige ID pro Termin
                 raw_t_id = str(t_row.get("Termin_ID", "")).strip()
                 if raw_t_id in ["", "nan", "None"]:
                     db_termin_id = f"Kurs_{uhrzeit}_{termin_titel}".replace(" ", "_").replace(":", "")
                 else:
                     db_termin_id = raw_t_id
-                    
-                # Bereits eingecheckte Personen für diesen Termin holen
+                
+                # Anwesende für diesen exakten Kurs abfragen
                 already_checked_names = []
                 if not df_att.empty:
                     df_today = df_att[df_att["Datum"] == date_str]
-                    if "Termin_ID" in df_today.columns:
-                        exact_matches = df_today[df_today["Termin_ID"] == db_termin_id]["Name"].tolist()
-                        legacy_matches = []
-                        if raw_t_id in ["", "nan", "None"]:
-                            legacy_matches = df_today[df_today["Termin_ID"].isin(["", "nan", "None", None])]["Name"].tolist()
-                        already_checked_names = list(set(exact_matches + legacy_matches))
-                    else:
-                        already_checked_names = df_today["Name"].tolist()
+                    already_checked_names = df_today[df_today["Termin_ID"] == db_termin_id]["Name"].tolist()
+                    
+                    # Fallback für alte Einträge, wo Termin_ID noch komplett leer war
+                    if not already_checked_names and raw_t_id in ["", "nan", "None"]:
+                        already_checked_names = df_today[df_today["Termin_ID"].isin(["", "nan", "None", None])]["Name"].tolist()
                 
                 with st.expander(f"🏋️‍♂️ {uhrzeit} Uhr – {termin_titel} (Teilnehmer: {teilnehmer_raw})", expanded=True):
                     if not teilnehmer_raw.strip():
@@ -109,51 +108,53 @@ with tab1:
                     
                     teilnehmer_list = [t.strip() for t in teilnehmer_raw.split(",") if t.strip()]
                     
-                    # Spalten für die Checkboxen aufbauen
-                    cols = st.columns(min(len(teilnehmer_list), 3) if len(teilnehmer_list) > 0 else 1)
-                    
-                    for p_idx, participant in enumerate(teilnehmer_list):
-                        c_idx = p_idx % 3
-                        is_present = participant in already_checked_names
+                    # WICHTIG: Das Formular erzwingt einen manuellen Speichern-Button und verhindert UI-Freezes
+                    with st.form(f"checkin_form_{t_idx}"):
+                        checked_participants = {}
+                        cols = st.columns(min(len(teilnehmer_list), 3) if len(teilnehmer_list) > 0 else 1)
                         
-                        with cols[c_idx]:
-                            # ECHTZEIT CHECKBOX (ohne Formular)
-                            checked = st.checkbox(
-                                participant, 
-                                value=is_present, 
-                                key=f"att_chk_{db_termin_id}_{p_idx}"
-                            )
+                        for p_idx, participant in enumerate(teilnehmer_list):
+                            c_idx = p_idx % 3
+                            is_present = participant in already_checked_names
                             
-                            # Auto-Save Logik: Löst sofort aus, wenn sich der Haken ändert
-                            if checked != is_present:
+                            with cols[c_idx]:
+                                checked_participants[participant] = st.checkbox(
+                                    participant, 
+                                    value=is_present, 
+                                    key=f"chk_{t_idx}_{p_idx}"
+                                )
+                        
+                        submit_session = st.form_submit_button(f"💾 Anwesenheit speichern")
+                        
+                        if submit_session:
+                            for name, checked in checked_participants.items():
                                 m_id = "-"
                                 if not df_members.empty:
-                                    match = df_members[df_members["Name"] == participant]
+                                    match = df_members[df_members["Name"] == name]
                                     if not match.empty:
                                         m_id = str(match.iloc[0]["Mitglieder_ID"])
                                 
+                                # Lösche immer zuerst den Eintrag für DIESEN Termin
+                                supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", db_termin_id).execute()
+                                
+                                # Bei alten Terminen sicherheitshalber auch die leeren Termin_IDs löschen
+                                if raw_t_id in ["", "nan", "None"]:
+                                    supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", "").execute()
+                                    
                                 if checked:
-                                    # Neu in die Cloud eintragen
                                     supabase.table("Anwesenheit").insert({
                                         "Datum": date_str, 
                                         "Mitglieder_ID": m_id, 
-                                        "Name": participant, 
+                                        "Name": name, 
                                         "Termin_ID": db_termin_id
                                     }).execute()
-                                else:
-                                    # Aus der Cloud löschen
-                                    supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", participant).eq("Termin_ID", db_termin_id).execute()
-                                    # Legacy (alte Daten) zur Sicherheit auch bereinigen
-                                    if raw_t_id in ["", "nan", "None"]:
-                                        supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", participant).eq("Termin_ID", "").execute()
-                                
-                                # Seite unsichtbar neu laden, um die Werte fest zu verankern
-                                st.rerun()
-
+                            
+                            st.success(f"Anwesenheit für '{termin_titel}' am {date_str} gespeichert!")
+                            st.rerun()
+            else:
+                st.info(f"Für den {selected_date.strftime('%d.%m.%Y')} sind keine Termine/Kurse im Planer eingetragen.")
         else:
-            st.info(f"Für den {selected_date.strftime('%d.%m.%Y')} sind keine Termine/Kurse im Planer eingetragen.")
-    else:
-        st.warning("Keine Termine in der Cloud-Datenbank gefunden.")
+            st.warning("Keine Termine in der Cloud-Datenbank gefunden.")
 
 
 # -------------------------------------------------------------------------
