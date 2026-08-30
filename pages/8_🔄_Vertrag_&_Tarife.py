@@ -261,14 +261,32 @@ if selected_member_str:
         current_tariff = row.get('Tarif', '-')
         
         available_tariffs = [
-            "Kurse 2x wöchentlich, 59€ pro Monat",
-            "Kleingruppen-Personal-Training 1x wöchentlich, 99€ pro Monat",
-            "Kleingruppen-Personal-Training 2x wöchentlich, 179€ pro Monat"
+            "Kurse: 1x wöchentlich 59€ pro Monat", 
+            "Kleingruppen-Personaltraining 2x wöchentlich 179€ im Monat", 
+            "Power Workshop 1x wöchentlich 99€ im Monat",
+            "Firmenfitness (80€ je Stunde für alle 4 Mitarbeiter)"
         ]
         
         default_index = available_tariffs.index(current_tariff) if current_tariff in available_tariffs else 0
         
-        new_tariff = st.selectbox("Neuer Tarif:", available_tariffs, index=default_index, key="tf_new_tariff")
+        new_tariff_selection = st.selectbox("Neuer Tarif:", available_tariffs, index=default_index, key="tf_new_tariff")
+        
+        # Dynamische Berechnung für Firmenfitness
+        new_tariff = new_tariff_selection
+        if new_tariff_selection == "Firmenfitness (80€ je Stunde für alle 4 Mitarbeiter)":
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                mitarbeiter = st.number_input("Anzahl der Mitarbeiter (in 4er Schritten):", min_value=4, step=4, value=4, key="tf_mitarbeiter")
+            with col_f2:
+                stunden = st.number_input("Stunden pro Woche:", min_value=1, step=1, value=1, key="tf_stunden")
+                
+            gruppen = mitarbeiter / 4
+            wochen_summe = gruppen * 80 * stunden
+            monats_summe = wochen_summe * 4  # (Ausgehend von 4 Wochen pro Monat)
+            
+            st.success(f"**Berechnete Endsumme:** {monats_summe:.2f} € pro Monat (entspricht {wochen_summe:.2f} € / Woche)")
+            new_tariff = f"Firmenfitness ({int(mitarbeiter)} MA, {int(stunden)} Std./Woche) - {monats_summe:.2f} € / Monat"
+            
         effective_date_input = st.date_input("Gültig ab Datum:", value=datetime.date.today(), key="tf_eff_date")
         tariff_note = st.text_input("Grund / Notiz zum Tarifwechsel (optional):", value="", key="tf_note")
         
