@@ -7,7 +7,6 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 import smtplib
 from fpdf import FPDF
-import matplotlib.subplots as subplots
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
