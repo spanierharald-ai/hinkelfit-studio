@@ -78,12 +78,18 @@ with tab1:
                 termin_titel = t_row.get("Art", "Training / Kurs") 
                 uhrzeit = t_row.get("Uhrzeit", "00:00")
                 teilnehmer_raw = str(t_row.get("Teilnehmer", ""))
-                termin_id = str(t_row.get("Termin_ID", ""))
+                
+                # SICHERHEITS-CHECK: Falls es ein "alter" Termin ohne Termin_ID ist, baue eine eindeutige ID
+                raw_termin_id = str(t_row.get("Termin_ID", ""))
+                if raw_termin_id.strip() in ["", "nan", "None"]:
+                    termin_id = f"alt_{uhrzeit}_{termin_titel}".replace(" ", "_")
+                else:
+                    termin_id = raw_termin_id
                 
                 # Bereits eingecheckte Personen für EXAKT DIESEN Termin holen
                 already_checked_names = []
                 if not df_att.empty and "Termin_ID" in df_att.columns:
-                    already_checked_names = df_att[(df_att["Datum"] == date_str) & (df_att["Termin_ID"] == termin_id)]["Name"].tolist()
+                    already_checked_names = df_att[(df_att["Datum"] == date_str) & (df_att["Termin_ID"].isin([termin_id, raw_termin_id]))]["Name"].tolist()
                 elif not df_att.empty and "Datum" in df_att.columns:
                     # Fallback, falls alte Daten noch keine Termin_ID hatten
                     already_checked_names = df_att[df_att["Datum"] == date_str]["Name"].tolist()
@@ -124,6 +130,10 @@ with tab1:
                                 
                                 # Supabase: Löscht den Anwesenheitseintrag gezielt NUR FÜR DIESEN TERMIN
                                 supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", termin_id).execute()
+                                
+                                # Falls es ein alter Termin ist, löschen wir sicherheitshalber auch leere Einträge dieses Mitglieds heute
+                                if raw_termin_id.strip() in ["", "nan", "None"]:
+                                    supabase.table("Anwesenheit").delete().eq("Datum", date_str).eq("Name", name).eq("Termin_ID", "").execute()
                                 
                                 # Wenn anwesend, neu eintragen (jetzt immer inkl. Termin_ID)
                                 if is_present:
