@@ -121,7 +121,7 @@ if st.session_state.step == 1:
 
 • **Terminabsage & Stornierung:** Vereinbarte Termine können vom Kunden bis zu 48 Stunden vor Trainingsbeginn kostenfrei abgesagt oder verschoben werden.
 
-• **Kündigungsfrist:** 2 Wochen zum Laufzeitende""")
+• **Kündigungsfrist:** 4 Wochen zum Laufzeitende""")
     
     if st.button("✅ AGB & Vertragsbedingungen akzeptieren" if not st.session_state.agb_ok else "AGB akzeptiert ✅", key="btn_agb"): 
         st.session_state.agb_ok = True
