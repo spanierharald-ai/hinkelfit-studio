@@ -1,17 +1,38 @@
 import datetime
 import os
+import re
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 import smtplib
 from fpdf import FPDF
+import matplotlib.subplots as subplots
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 import streamlit as st
 import altair as alt
 from supabase import create_client
+
+def parse_time_to_seconds(time_str):
+    if pd.isna(time_str): return None
+    s = str(time_str).strip().lower()
+    if not s: return None
+    match = re.search(r'(\d+):(\d+(?:\.\d+)?)', s)
+    if match: return int(match.group(1)) * 60 + float(match.group(2))
+    match = re.search(r'(\d+(?:\.\d+)?)\s*m', s)
+    if match:
+        mins = float(match.group(1))
+        secs = 0
+        match_s = re.search(r'(\d+(?:\.\d+)?)\s*s', s)
+        if match_s: secs = float(match_s.group(1))
+        return mins * 60 + secs
+    match = re.search(r'(\d+(?:\.\d+)?)\s*s', s)
+    if match: return float(match.group(1))
+    match = re.search(r'^(\d+(?:\.\d+)?)$', s)
+    if match: return float(match.group(1))
+    return None
 
 class ModernPDFReport(FPDF):
     def header(self):
@@ -258,16 +279,22 @@ if not df_members.empty and "Name" in df_members.columns:
                                     ax.plot(df_area_plot["Datum"], pd.to_numeric(df_area_plot[col], errors='coerce'), marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
                                 plotted_cols = True
                         elif exercise_type == "Kondition":
-                            cols_to_plot = [c for c in ["Tragen_Gewicht"] if c in df_area_plot.columns]
+                            cols_to_plot = [c for c in ["Tragen_Gewicht", "Ausdauer_Zeit", "Zirkel_Zeit"] if c in df_area_plot.columns]
                             if cols_to_plot:
                                 for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], pd.to_numeric(df_area_plot[col], errors='coerce'), marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
+                                    if col in ["Ausdauer_Zeit", "Zirkel_Zeit"]:
+                                        y_vals = df_area_plot[col].apply(parse_time_to_seconds)
+                                        label = col.replace("_", " ") + " (Sek.)"
+                                    else:
+                                        y_vals = pd.to_numeric(df_area_plot[col], errors='coerce')
+                                        label = col.replace("_", " ") + " (kg)"
+                                    ax.plot(df_area_plot["Datum"], y_vals, marker="o", linewidth=2, markersize=5, label=label, color=plot_colors[i % len(plot_colors)])
                                 plotted_cols = True
 
                         if plotted_cols:
                             ax.set_title(f"Verlauf für Schwerpunkt: {exercise_type}", fontsize=10, fontweight="bold", color="#1e293b", pad=10)
                             ax.set_xlabel("Kalendertag", fontsize=8, color="#1e293b")
-                            ax.set_ylabel("Gewicht", fontsize=8, color="#1e293b")
+                            ax.set_ylabel("Gewicht (kg) / Zeit (Sek.)", fontsize=8, color="#1e293b")
                             ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
                             ax.tick_params(axis="both", labelsize=8, colors="#475569")
                             ax.legend(fontsize=8, loc="upper left", frameon=True)
@@ -467,18 +494,25 @@ if not df_members.empty and "Name" in df_members.columns:
                 elif exercise_type == "Funktionelles Training":
                     cols_to_plot = [c for c in ["Sandsack_Gewicht", "KB_Wdh", "SS_Wdh"] if c in df_area_chart.columns]
                 elif exercise_type == "Kondition":
-                    cols_to_plot = [c for c in ["Tragen_Gewicht"] if c in df_area_chart.columns]
+                    cols_to_plot = [c for c in ["Tragen_Gewicht", "Ausdauer_Zeit", "Zirkel_Zeit"] if c in df_area_chart.columns]
                 
                 if cols_to_plot:
-                    # Werte vor dem Melt in numerisch umwandeln
                     for col in cols_to_plot:
-                        df_area_chart[col] = pd.to_numeric(df_area_chart[col], errors='coerce')
-                        
+                        if col in ["Ausdauer_Zeit", "Zirkel_Zeit"]:
+                            df_area_chart[col] = df_area_chart[col].apply(parse_time_to_seconds)
+                        else:
+                            df_area_chart[col] = pd.to_numeric(df_area_chart[col], errors='coerce')
+                            
                     df_melted = df_area_chart.melt(id_vars=["Datum"], value_vars=cols_to_plot, var_name="Übung", value_name="Wert")
+                    
+                    def get_label(x):
+                        if x in ["Ausdauer_Zeit", "Zirkel_Zeit"]: return x.replace("_", " ") + " (Sek.)"
+                        return x.replace("_", " ") + " (kg)"
+                    df_melted["Übung"] = df_melted["Übung"].apply(get_label)
                     
                     chart_area = alt.Chart(df_melted).mark_line(point=True, strokeWidth=3).encode(
                         x=alt.X('Datum:T', title='Kalendertag', axis=alt.Axis(format='%d.%m.%Y')),
-                        y=alt.Y('Wert:Q', title='Gewicht', scale=alt.Scale(zero=False)),
+                        y=alt.Y('Wert:Q', title='Gewicht (kg) / Zeit (Sek.)', scale=alt.Scale(zero=False)),
                         color=alt.Color('Übung:N', legend=alt.Legend(title="Parameter")),
                         tooltip=['Datum:T', 'Übung:N', 'Wert:Q']
                     ).interactive()
