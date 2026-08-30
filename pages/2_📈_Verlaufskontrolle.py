@@ -242,6 +242,7 @@ if not df_members.empty and "Name" in df_members.columns:
 
                     plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
 
+                    # CHART 1: KÖRPERGEWICHT
                     chart_weight_path = os.path.join(member_dir, "temp_weight_chart.png")
                     if not df_plot.empty and "Koerpergewicht" in df_plot.columns and pd.to_numeric(df_plot["Koerpergewicht"], errors='coerce').sum() > 0:
                         fig, ax = plt.subplots(figsize=(6.5, 2.2))
@@ -258,49 +259,48 @@ if not df_members.empty and "Name" in df_members.columns:
                         fig.savefig(chart_weight_path, dpi=300)
                         plt.close(fig)
 
-                    chart_area_path = os.path.join(member_dir, "temp_area_chart.png")
+                    # CHARTS: EINZELNE ÜBUNGEN FÜR DAS PDF
+                    generated_chart_paths = []
                     df_area_plot = df_plot[df_plot["Bereich"] == exercise_type] if not df_plot.empty else pd.DataFrame()
                     if not df_area_plot.empty:
-                        fig, ax = plt.subplots(figsize=(6.5, 2.5))
-                        plotted_cols = False
-                        plot_colors = ["#0284c7", "#10b981", "#f59e0b", "#8b5cf6"]
-
+                        plot_colors = ["#0284c7", "#10b981", "#f59e0b", "#8b5cf6", "#e11d48", "#4f46e5"]
+                        
+                        cols_to_plot = []
                         if exercise_type == "Krafttraining":
                             cols_to_plot = [c for c in ["Gewicht_Drueckende_Uebung", "Gewicht_Chinesische_Ruderbank", "Gewicht_Kniebeuge", "Gewicht_Kreuzheben"] if c in df_area_plot.columns]
-                            if cols_to_plot:
-                                for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], pd.to_numeric(df_area_plot[col], errors='coerce'), marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
-                                plotted_cols = True
                         elif exercise_type == "Funktionelles Training":
                             cols_to_plot = [c for c in ["Sandsack_Gewicht", "KB_Wdh", "SS_Wdh"] if c in df_area_plot.columns]
-                            if cols_to_plot:
-                                for i, col in enumerate(cols_to_plot):
-                                    ax.plot(df_area_plot["Datum"], pd.to_numeric(df_area_plot[col], errors='coerce'), marker="o", linewidth=2, markersize=5, label=col.replace("_", " "), color=plot_colors[i % len(plot_colors)])
-                                plotted_cols = True
                         elif exercise_type == "Kondition":
                             cols_to_plot = [c for c in ["Tragen_Gewicht", "Ausdauer_Zeit", "Zirkel_Zeit"] if c in df_area_plot.columns]
-                            if cols_to_plot:
-                                for i, col in enumerate(cols_to_plot):
-                                    if col in ["Ausdauer_Zeit", "Zirkel_Zeit"]:
-                                        y_vals = df_area_plot[col].apply(parse_time_to_seconds)
-                                        label = col.replace("_", " ") + " (Sek.)"
-                                    else:
-                                        y_vals = pd.to_numeric(df_area_plot[col], errors='coerce')
-                                        label = col.replace("_", " ") + " (kg)"
-                                    ax.plot(df_area_plot["Datum"], y_vals, marker="o", linewidth=2, markersize=5, label=label, color=plot_colors[i % len(plot_colors)])
-                                plotted_cols = True
-
-                        if plotted_cols:
-                            ax.set_title(f"Verlauf für Schwerpunkt: {exercise_type}", fontsize=10, fontweight="bold", color="#1e293b", pad=10)
+                            
+                        for i, col in enumerate(cols_to_plot):
+                            if col in ["Ausdauer_Zeit", "Zirkel_Zeit"]:
+                                y_vals = df_area_plot[col].apply(parse_time_to_seconds)
+                                label = col.replace("_", " ") + " (Sek.)"
+                            else:
+                                y_vals = pd.to_numeric(df_area_plot[col], errors='coerce')
+                                label = col.replace("_", " ") + " (kg / Wdh.)"
+                                
+                            # Überspringen, wenn es für diese Übung gar keine Daten gibt
+                            if y_vals.notna().sum() == 0:
+                                continue
+                                
+                            fig, ax = plt.subplots(figsize=(6.5, 2.2))
+                            ax.plot(df_area_plot["Datum"], y_vals, marker="o", linewidth=2, markersize=5, label=label, color=plot_colors[i % len(plot_colors)])
+                            
+                            ax.set_title(f"Verlauf: {col.replace('_', ' ')}", fontsize=10, fontweight="bold", color="#1e293b", pad=10)
                             ax.set_xlabel("Kalendertag", fontsize=8, color="#1e293b")
-                            ax.set_ylabel("Gewicht (kg) / Zeit (Sek.)", fontsize=8, color="#1e293b")
+                            ax.set_ylabel("Wert", fontsize=8, color="#1e293b")
                             ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m.%Y'))
                             ax.tick_params(axis="both", labelsize=8, colors="#475569")
                             ax.legend(fontsize=8, loc="upper left", frameon=True)
                             ax.grid(True, linestyle="--", alpha=0.5, color="#cbd5e1")
                             fig.tight_layout()
-                            fig.savefig(chart_area_path, dpi=300)
+                            
+                            c_path = os.path.join(member_dir, f"temp_chart_{i}.png")
+                            fig.savefig(c_path, dpi=300)
                             plt.close(fig)
+                            generated_chart_paths.append(c_path)
 
                     pdf = ModernPDFReport()
                     pdf.add_page()
@@ -357,13 +357,15 @@ if not df_members.empty and "Name" in df_members.columns:
                         pdf.cell(80, 6.5, txt=f"{str(val)}    ".encode("latin-1", "replace").decode("latin-1"), border=1, ln=1, align="R", fill=True)
                         fill_toggle = not fill_toggle
 
+                    # ALLE ERZEUGTEN CHARTS IN DAS PDF EINSETZEN
                     if os.path.exists(chart_weight_path):
                         pdf.ln(4)
                         pdf.image(chart_weight_path, x=15, w=180)
 
-                    if os.path.exists(chart_area_path):
-                        pdf.ln(2)
-                        pdf.image(chart_area_path, x=15, w=180)
+                    for c_path in generated_chart_paths:
+                        if os.path.exists(c_path):
+                            pdf.ln(2)
+                            pdf.image(c_path, x=15, w=180)
 
                     pdf.ln(4)
                     pdf.set_font("Arial", "B", 11)
@@ -378,8 +380,10 @@ if not df_members.empty and "Name" in df_members.columns:
                     pdf.multi_cell(190, 6.5, txt=f" {notes_text}".encode("latin-1", "replace").decode("latin-1"), border=1, fill=True, align="L")
                     pdf.output(pdf_filename)
 
+                    # BILDER WIEDER AUFRÄUMEN
                     if os.path.exists(chart_weight_path): os.remove(chart_weight_path)
-                    if os.path.exists(chart_area_path): os.remove(chart_area_path)
+                    for c_path in generated_chart_paths:
+                        if os.path.exists(c_path): os.remove(c_path)
 
                     # E-MAIL VERSAND INKLUSIVE INLINE-LOGO & PREHEADER
                     email_secrets = st.secrets.get("email", {})
@@ -483,7 +487,8 @@ if not df_members.empty and "Name" in df_members.columns:
                     ).interactive()
                     st.altair_chart(chart_kg, use_container_width=True)
 
-            df_area_chart = df_filtered_chart[df_filtered_chart["Bereich"] == exercise_type]
+            # --- EINZELNE CHARTS FÜR DIE WEBANSICHT ---
+            df_area_chart = df_filtered_chart[df_filtered_chart["Bereich"] == exercise_type].copy()
             if not df_area_chart.empty:
                 st.markdown(f"#### Verlauf für Schwerpunkt: {exercise_type}")
                 
@@ -497,25 +502,25 @@ if not df_members.empty and "Name" in df_members.columns:
                 
                 if cols_to_plot:
                     for col in cols_to_plot:
+                        # Extrahiere die Daten für diese eine Übung
+                        df_single = df_area_chart[["Datum", col]].copy()
+                        
                         if col in ["Ausdauer_Zeit", "Zirkel_Zeit"]:
-                            df_area_chart[col] = df_area_chart[col].apply(parse_time_to_seconds)
+                            df_single[col] = df_single[col].apply(parse_time_to_seconds)
+                            y_label = "Zeit (Sekunden)"
                         else:
-                            df_area_chart[col] = pd.to_numeric(df_area_chart[col], errors='coerce')
+                            df_single[col] = pd.to_numeric(df_single[col], errors='coerce')
+                            y_label = "Gewicht (kg) / Wdh."
                             
-                    df_melted = df_area_chart.melt(id_vars=["Datum"], value_vars=cols_to_plot, var_name="Übung", value_name="Wert")
-                    
-                    def get_label(x):
-                        if x in ["Ausdauer_Zeit", "Zirkel_Zeit"]: return x.replace("_", " ") + " (Sek.)"
-                        return x.replace("_", " ") + " (kg)"
-                    df_melted["Übung"] = df_melted["Übung"].apply(get_label)
-                    
-                    chart_area = alt.Chart(df_melted).mark_line(point=True, strokeWidth=3).encode(
-                        x=alt.X('Datum:T', title='Kalendertag', axis=alt.Axis(format='%d.%m.%Y')),
-                        y=alt.Y('Wert:Q', title='Gewicht (kg) / Zeit (Sek.)', scale=alt.Scale(zero=False)),
-                        color=alt.Color('Übung:N', legend=alt.Legend(title="Parameter")),
-                        tooltip=['Datum:T', 'Übung:N', 'Wert:Q']
-                    ).interactive()
-                    st.altair_chart(chart_area, use_container_width=True)
+                        # Nur anzeigen, wenn auch wirklich Daten vorhanden sind
+                        if df_single[col].notna().sum() > 0:
+                            st.markdown(f"**{col.replace('_', ' ')}**")
+                            chart_single = alt.Chart(df_single.dropna()).mark_line(point=True, strokeWidth=3).encode(
+                                x=alt.X('Datum:T', title='Kalendertag', axis=alt.Axis(format='%d.%m.%Y')),
+                                y=alt.Y(f'{col}:Q', title=y_label, scale=alt.Scale(zero=False)),
+                                tooltip=['Datum:T', f'{col}:Q']
+                            ).interactive()
+                            st.altair_chart(chart_single, use_container_width=True)
     else:
         st.info("Noch keine Daten für Charts vorhanden.")
 else:
