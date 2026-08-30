@@ -156,10 +156,16 @@ def get_upcoming_slots(tarif, df_termine_promo, start_of_week, end_of_week):
     
     if "Kurse" in str(tarif):
         df_week = df_week[df_week["Art"].isin(["Kurs", "Probetraining"])]
+    elif "Kleingruppen-Personaltraining" in str(tarif):
+        df_week = df_week[df_week["Art"].isin(["Kleingruppen-Personaltraining", "Probetraining"])]
+    elif "Power Workshop" in str(tarif):
+        df_week = df_week[df_week["Art"].isin(["Power Workshop", "Probetraining"])]
+    elif "Firmenfitness" in str(tarif):
+        df_week = df_week[df_week["Art"].isin(["Firmenfitness", "Probetraining"])]
     elif tarif == "Probetraining":
         df_week = df_week[df_week["Art"] == "Probetraining"]
     else:
-        df_week = df_week[df_week["Art"].isin(["Personaltraining (Kleingruppe)", "Probetraining"])]
+        df_week = df_week[df_week["Art"].isin(["Probetraining"])]
         
     if df_week.empty: return "Leider sind in dieser Woche in deinem Bereich keine Termine mehr verfügbar."
         
@@ -276,12 +282,18 @@ with tab1:
             termin_uhrzeit = datetime.datetime.strptime(termin_uhrzeit_str, "%H:%M").time()
             
         with col2:
-            termin_art = st.selectbox("Terminart", ["Personaltraining (Kleingruppe)", "Kurs", "Probetraining"])
+            termin_art = st.selectbox("Terminart", ["Kleingruppen-Personaltraining", "Kurs", "Power Workshop", "Firmenfitness", "Probetraining"])
             termin_dauer = st.selectbox("Dauer", ["60 Minuten", "90 Minuten"])
 
         i_name, i_email, i_tel = "", "", ""
         if termin_art == "Kurs": 
             eligible_members = df_training_eligible[df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
+        elif termin_art == "Kleingruppen-Personaltraining":
+            eligible_members = df_training_eligible[df_training_eligible["Tarif"].str.contains("Kleingruppen-Personaltraining", na=False, case=False)]
+        elif termin_art == "Power Workshop":
+            eligible_members = df_training_eligible[df_training_eligible["Tarif"].str.contains("Power Workshop", na=False, case=False)]
+        elif termin_art == "Firmenfitness":
+            eligible_members = df_training_eligible[df_training_eligible["Tarif"].str.contains("Firmenfitness", na=False, case=False)]
         elif termin_art == "Probetraining": 
             eligible_members = df_training_eligible
             st.markdown("---")
@@ -292,9 +304,9 @@ with tab1:
             with col_p3: i_tel = st.text_input("Handynummer")
             st.markdown("---")
         else: 
-            eligible_members = df_training_eligible[~df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
+            eligible_members = df_training_eligible
 
-        max_sel = 4 if termin_art == "Personaltraining (Kleingruppe)" else None
+        max_sel = 4 if termin_art == "Kleingruppen-Personaltraining" else None
         
         teilnehmer = st.multiselect(
             f"Mitglieder hinzufügen (Optional - Filter: {termin_art})", 
@@ -304,7 +316,7 @@ with tab1:
         submitted = st.form_submit_button("Neuen Termin anlegen")
 
         if submitted:
-            if termin_art == "Personaltraining (Kleingruppe)" and (len(teilnehmer) + (1 if i_name.strip() else 0)) > 4:
+            if termin_art == "Kleingruppen-Personaltraining" and (len(teilnehmer) + (1 if i_name.strip() else 0)) > 4:
                 st.error("⚠️ Ein Kleingruppen-Personaltraining ist auf maximal 4 Personen begrenzt!")
             else:
                 conflict = False
@@ -378,10 +390,16 @@ with tab1:
                 
                 if termin_art_edit == "Kurs": 
                     eligible_members_edit = df_training_eligible[df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
+                elif termin_art_edit == "Kleingruppen-Personaltraining":
+                    eligible_members_edit = df_training_eligible[df_training_eligible["Tarif"].str.contains("Kleingruppen-Personaltraining", na=False, case=False)]
+                elif termin_art_edit == "Power Workshop":
+                    eligible_members_edit = df_training_eligible[df_training_eligible["Tarif"].str.contains("Power Workshop", na=False, case=False)]
+                elif termin_art_edit == "Firmenfitness":
+                    eligible_members_edit = df_training_eligible[df_training_eligible["Tarif"].str.contains("Firmenfitness", na=False, case=False)]
                 elif termin_art_edit == "Probetraining": 
                     eligible_members_edit = df_training_eligible
                 else: 
-                    eligible_members_edit = df_training_eligible[~df_training_eligible["Tarif"].str.contains("Kurse", na=False, case=False)]
+                    eligible_members_edit = df_training_eligible
                 
                 all_names = eligible_members_edit["Name"].tolist()
                 
@@ -392,7 +410,7 @@ with tab1:
                 valid_members = [t for t in current_teilnehmer_list if t in all_names]
                 interessenten = [t for t in current_teilnehmer_list if "Interessent" in t]
 
-                max_sel_edit = 4 if termin_art_edit == "Personaltraining (Kleingruppe)" else None
+                max_sel_edit = 4 if termin_art_edit == "Kleingruppen-Personaltraining" else None
                 default_valid = valid_members[:4] if max_sel_edit == 4 else valid_members
 
                 new_teilnehmer = st.multiselect("Mitglieder hinzufügen / entfernen:", options=all_names, default=default_valid, max_selections=max_sel_edit, key=f"multi_edit_{edit_id}")
@@ -400,7 +418,7 @@ with tab1:
                 with col_btn1:
                     if st.button("💾 Aktualisieren"):
                         final_teilnehmer = new_teilnehmer + interessenten
-                        if termin_art_edit == "Personaltraining (Kleingruppe)" and len(final_teilnehmer) > 4:
+                        if termin_art_edit == "Kleingruppen-Personaltraining" and len(final_teilnehmer) > 4:
                             st.error("⚠️ Ein Kleingruppen-Personaltraining ist auf maximal 4 Personen begrenzt!")
                         else:
                             overbooked = check_limits(final_teilnehmer, termin_datum_edit, df_termine_global, df_members, exclude_termin_id=edit_id)
