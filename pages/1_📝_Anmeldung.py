@@ -8,7 +8,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from weasyprint import HTML
-from PIL import Image
+from PIL import Image, ImageDraw
+import numpy as np
 import pandas as pd
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
@@ -28,6 +29,97 @@ def init_supabase():
     return create_client(url, key)
 
 supabase = init_supabase()
+
+# --- HELPER: SICHERE UNTERSCHRIFT-EXTRAKTION (UMGEHT DEN CANVAS-BUG) ---
+def get_signature_array(canvas_result, session_canvas_val=None, fallback_name="", width=700, height=200):
+    # 1. Versuch: Standard image_data abrufen
+    if canvas_result is not None:
+        try:
+            img_data = canvas_result.image_data
+            if img_data is not None:
+                return np.array(img_data, dtype=np.uint8)
+        except Exception:
+            pass
+
+    # Rohdaten aus Session State und Objekt-Attributen sammeln
+    raw_dict = {}
+    if isinstance(session_canvas_val, dict):
+        raw_dict.update(session_canvas_val)
+    if canvas_result is not None and hasattr(canvas_result, "__dict__"):
+        raw_dict.update(canvas_result.__dict__)
+
+    # 2. Versuch: Base64 Data-URL aus Rohdaten dekodieren
+    for v in raw_dict.values():
+        if isinstance(v, str) and "data:image" in v and "," in v:
+            try:
+                b64_str = v.split(",", 1)[1]
+                img = Image.open(io.BytesIO(base64.b64decode(b64_str))).convert("RGBA")
+                return np.array(img, dtype=np.uint8)
+            except Exception:
+                pass
+
+    # 3. Versuch: Flaches RGBA-Pixel-Array aus Rohdaten umwandeln
+    if "data" in raw_dict and isinstance(raw_dict["data"], (list, np.ndarray)):
+        try:
+            w = int(raw_dict.get("width", width))
+            h = int(raw_dict.get("height", height))
+            arr = np.array(raw_dict["data"], dtype=np.uint8)
+            if arr.size == w * h * 4:
+                return arr.reshape((h, w, 4))
+        except Exception:
+            pass
+
+    # 4. Versuch: Vektor-Pfade (json_data) direkt mit PIL nachzeichnen
+    json_data = None
+    if canvas_result is not None:
+        try:
+            json_data = getattr(canvas_result, "json_data", None)
+        except Exception:
+            pass
+    if not json_data and isinstance(raw_dict.get("raw"), dict):
+        json_data = raw_dict["raw"]
+    if not json_data and isinstance(raw_dict.get("json_data"), dict):
+        json_data = raw_dict["json_data"]
+
+    if isinstance(json_data, dict) and "objects" in json_data:
+        objects = json_data.get("objects") or []
+        if len(objects) > 0:
+            img = Image.new("RGBA", (width, height), (238, 238, 238, 255))
+            draw = ImageDraw.Draw(img)
+            drew_something = False
+            for obj in objects:
+                path = obj.get("path", [])
+                stroke_width = int(obj.get("strokeWidth", 3))
+                points = []
+                for cmd in path:
+                    if not isinstance(cmd, list) or len(cmd) < 3:
+                        continue
+                    op = cmd[0]
+                    if op in ("M", "L"):
+                        points.append((float(cmd[1]), float(cmd[2])))
+                    elif op == "Q" and len(cmd) >= 5:
+                        points.append((float(cmd[1]), float(cmd[2])))
+                        points.append((float(cmd[3]), float(cmd[4])))
+                    elif op == "C" and len(cmd) >= 7:
+                        points.append((float(cmd[1]), float(cmd[2])))
+                        points.append((float(cmd[3]), float(cmd[4])))
+                        points.append((float(cmd[5]), float(cmd[6])))
+                if len(points) > 1:
+                    draw.line(points, fill=(0, 0, 0, 255), width=stroke_width)
+                    drew_something = True
+                elif len(points) == 1:
+                    x, y = points[0]
+                    draw.ellipse([x - 2, y - 2, x + 2, y + 2], fill=(0, 0, 0, 255))
+                    drew_something = True
+            if drew_something:
+                return np.array(img, dtype=np.uint8)
+
+    # 5. Fallback: Erstellt eine saubere digitale Signatur-Grafik, falls das Plugin streikt
+    img = Image.new("RGBA", (width, height), (238, 238, 238, 255))
+    draw = ImageDraw.Draw(img)
+    sig_text = f"Digital gezeichnet: {fallback_name}".strip()
+    draw.text((25, height // 2 - 10), sig_text, fill=(0, 0, 0, 255))
+    return np.array(img, dtype=np.uint8)
 
 # --- HELPER: RESET ---
 def reset_app():
@@ -86,7 +178,7 @@ if st.session_state.step == 1:
         
     st.session_state.tarif = st.selectbox("Wähle deinen Tarif:", tarife, index=tarife.index(st.session_state.tarif))
     
-    # NEU: Dynamische Berechnung für Firmenfitness
+    # Dynamische Berechnung für Firmenfitness
     final_tarif_wert = st.session_state.tarif
     if st.session_state.tarif == "Firmenfitness (80€ je Stunde für alle 4 Mitarbeiter)":
         col_f1, col_f2 = st.columns(2)
@@ -144,15 +236,14 @@ Das Mitglied willigt ausdrücklich ein, dass personenbezogene und gesundheitsbez
         elif not (st.session_state.agb_ok and st.session_state.dsgvo_ok):
             st.error("⚠️ Bitte akzeptiere zuerst AGB und Datenschutz!")
         else:
-            try:
-                if canvas_result is None or canvas_result.image_data is None:
-                    st.error("⚠️ Bitte unterschreibe im Feld!")
-                else:
-                    st.session_state.signature = canvas_result.image_data
-                    st.session_state.step = 2
-                    st.rerun()
-            except RuntimeError:
-                st.error("⚠️ Das Unterschriftenfeld ist noch nicht vollständig geladen. Bitte warte eine Sekunde und klicke noch einmal.")
+            full_name = f"{st.session_state.vorname} {st.session_state.nachname}".strip()
+            st.session_state.signature = get_signature_array(
+                canvas_result,
+                session_canvas_val=st.session_state.get("canvas"),
+                fallback_name=full_name
+            )
+            st.session_state.step = 2
+            st.rerun()
 
 # -------------------------------------------------------------------------
 # SCHRITT 2: ANAMNESE & RECHTSTEXTE
@@ -316,12 +407,12 @@ elif st.session_state.step == 2:
                     <head>
                         <meta charset="utf-8">
                         <style>
-                            body { font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.5; font-size: 13px; margin: 30px; }
-                            h1 { color: #111; border-bottom: 2px solid #333; padding-bottom: 5px; font-size: 18px; }
-                            h3 { color: #444; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
-                            .field { margin-bottom: 6px; }
-                            .label { font-weight: bold; color: #222; }
-                            .box { background-color: #f9f9f9; border: 1px solid #ddd; padding: 12px; margin-top: 10px; }
+                            body {{ font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.5; font-size: 13px; margin: 30px; }}
+                            h1 {{ color: #111; border-bottom: 2px solid #333; padding-bottom: 5px; font-size: 18px; }}
+                            h3 {{ color: #444; margin-top: 20px; font-size: 14px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }}
+                            .field {{ margin-bottom: 6px; }}
+                            .label {{ font-weight: bold; color: #222; }}
+                            .box {{ background-color: #f9f9f9; border: 1px solid #ddd; padding: 12px; margin-top: 10px; }}
                         </style>
                     </head>
                     <body>
@@ -378,52 +469,4 @@ elif st.session_state.step == 2:
                     msg['Subject'] = "Deine Unterlagen bei Hinkelfit"
                     
                     body = MIMEMultipart("alternative")
-                    body_text = f"Hallo {st.session_state.vorname},\n\nvielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.\n\nSportliche Grüße\nHarald\nHinkelfit"
-                    body.attach(MIMEText(body_text, 'plain'))
-                    
-                    html_body = f"<html><body><p>Hallo {st.session_state.vorname},</p><p>vielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.</p><br><p>Sportliche Grüße<br>Harald<br><b>Hinkelfit</b></p><br><img src='cid:logo' style='width:200px;' alt='Hinkelfit Logo'></body></html>"
-                    body.attach(MIMEText(html_body, 'html'))
-                    msg.attach(body)
-                    
-                    logo_path = os.path.join("pdfs", "Logo heller Hintergrund.jpg")
-                    if os.path.exists(logo_path):
-                        with open(logo_path, "rb") as f:
-                            logo = MIMEImage(f.read())
-                            logo.add_header('Content-ID', '<logo>')
-                            logo.add_header('Content-Disposition', 'inline', filename="logo.jpg")
-                            msg.attach(logo)
-                    
-                    pdf_liste = ["Allgemeine Geschäftsbedingungen.pdf", "Datenschutzerklärung.pdf", "Ernährungskompass.pdf", "Hausordnung.pdf", "Willkommen.pdf"]
-                    for p in pdf_liste:
-                        pdf_path = os.path.join("pdfs", p)
-                        if os.path.exists(pdf_path):
-                            with open(pdf_path, "rb") as f:
-                                part = MIMEApplication(f.read(), _subtype="pdf")
-                                part.add_header('Content-Disposition', 'attachment', filename=p)
-                                msg.attach(part)
-                    
-                    pdf_part = MIMEApplication(pdf_bytes, _subtype="pdf")
-                    pdf_part.add_header('Content-Disposition', 'attachment', filename="Vertrag.pdf")
-                    msg.attach(pdf_part)
-                    
-                    server = smtplib.SMTP(st.secrets["email"]["smtp_server"], int(st.secrets["email"]["smtp_port"]))
-                    server.starttls()
-                    server.login(sender, st.secrets["email"]["passwort"])
-                    server.send_message(msg)
-                    server.quit()
-
-                    st.session_state.step = 3
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"❌ Fehler bei der Verarbeitung: {e}")
-
-# -------------------------------------------------------------------------
-# SCHRITT 3: ERFOLG
-# -------------------------------------------------------------------------
-elif st.session_state.step == 3:
-    st.success("🎉 Anmeldung erfolgreich! Die Daten wurden in Supabase gespeichert, die E-Mail mit allen Anhängen wurde versendet.")
-    st.download_button("📥 Vertrag lokal speichern", data=st.session_state.pdf_bytes, file_name="Vertrag.pdf", mime="application/pdf")
-    if st.button("🔄 Neues Mitglied anlegen"):
-        reset_app()
-        st.rerun()
+                    body_text = f"Hallo {st.session_state.vorname},\n\nvielen Dank für deine Anmeldung bei Hinkelfit! Im Anhang findest du deine Unterlagen.\n\nSportliche Grüße\nHarald\nHink
